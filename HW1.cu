@@ -1,4 +1,4 @@
-// Name:
+// Name: Brooks Pearce
 // Vector addition on the CPU, with timer and error checking
 // To compile: nvcc HW1.cu -o temp
 /*
@@ -143,4 +143,5 @@ int main()
 	printf("\n\n");
 	
 	return(0);
+
 }
