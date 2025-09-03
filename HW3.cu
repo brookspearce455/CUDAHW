@@ -156,8 +156,8 @@ void cudaErrorCheck(const char *file, int line)
 	
 	if (error != cudaSuccess)
 	{
-		printf("\n CUDA ERROR: messafw = %s, File = %s, Line = %d\n,
-		cudaGetErrorString(error), file, line);
+		printf("\n CUDA ERROR: messafw = %s, File =  %s, Line = %d\n",cudaGetErrorString(error), file, line);
+		
 			exit(0);
 	}
 }
@@ -203,7 +203,7 @@ int main()
 	cudaMemcpyAsync(C_CPU, C_GPU, N*sizeof(float), cudaMemcpyDeviceToHost);
 
 	// Making sure the GPU and CPU wiat until each other are at the same place.
-	cudaDeviceSynchronize(void);
+	cudaDeviceSynchronize();
 	
 	gettimeofday(&end, NULL);
 	timeGPU = elaspedTime(start, end);
