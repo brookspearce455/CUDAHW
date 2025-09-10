@@ -54,11 +54,25 @@ int main()
 		printf("Kernel execution timeout : ");
 		if (prop.kernelExecTimeoutEnabled) printf("Enabled\n");
 		else printf("Disabled\n");
+		printf("GPU is "); 
+		if (prop.integrated) printf("Integrated on the motherboard\n");
+		else printf("Discrete from motherboard\n");
+		printf("Compute Mode: ");
+		if (prop.computeMode == 0) printf("no restrictions\n");
+		else if (prop.computeMode == 1) printf("Exclusive to One Context\n");
+		else if (prop.computeMode == 2) printf("Prohibited\n");
+		else if (prop.computeMode == 3) printf("Process is Exclusive to device but not threads\n");
+		printf("Multi kernel execution: ");
+		if (prop.concurrentKernels) printf("Yes\n");
+		else printf("No\n");
 		printf(" ---Memory Information for device %d ---\n", i);
 		printf("Total global mem: %ld\n", prop.totalGlobalMem);
 		printf("Total constant Mem: %ld\n", prop.totalConstMem);
 		printf("Max mem pitch: %ld\n", prop.memPitch);
 		printf("Texture Alignment: %ld\n", prop.textureAlignment);
+		printf("CPU memory hosting on GPU: ");
+		if (prop.canMapHostMemory) printf("Enabled\n");
+		else printf("Disabled\n");
 		printf(" ---MP Information for device %d ---\n", i);
 		printf("Multiprocessor count : %d\n", prop.multiProcessorCount); //Number of SMs on the GPU
 		printf("Shared mem per mp: %ld\n", prop.sharedMemPerBlock);
@@ -71,7 +85,7 @@ int main()
 		printf("Max 1D texture size: %d\n", prop.maxTexture1D);
 		printf("Max Dimensions for 2D textures: (%d, %d)\n", prop.maxTexture2D[0], prop.maxTexture2D[1]);
 		printf("Max Dimensions for 3D textures: (%d, %d, %d)\n", prop.maxTexture3D[0], prop.maxTexture3D[1], prop.maxTexture3D[2]);
-		//printf("Max Dimensions for 2D texture arrays: (%d, %d, %d)\n", prop.maxTexture2DArray[0], prop.maxTexture2DArray[1], prop.maxTexture2DArray[2]);
+		if (prop.maxTexture2DLinear) printf("Max Dimensions for 2D texture arrays: (%d, %d, %d)\n", prop.maxTexture2DLinear[0], prop.maxTexture2DLinear[1], 		 prop.maxTexture2DLinear[2]);
 	}	
 	return(0);
 }
