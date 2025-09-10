@@ -67,7 +67,11 @@ int main()
 		printf("Max threads per block: %d\n", prop.maxThreadsPerBlock);
 		printf("Max thread dimensions: (%d, %d, %d)\n", prop.maxThreadsDim[0], prop.maxThreadsDim[1], prop.maxThreadsDim[2]);
 		printf("Max grid dimensions: (%d, %d, %d)\n", prop.maxGridSize[0], prop.maxGridSize[1], prop.maxGridSize[2]);
-		printf("\n");
+		printf(" ---Texture Information for device %d ---\n", i);
+		printf("Max 1D texture size: %d\n", prop.maxTexture1D);
+		printf("Max Dimensions for 2D textures: (%d, %d)\n", prop.maxTexture2D[0], prop.maxTexture2D[1]);
+		printf("Max Dimensions for 3D textures: (%d, %d, %d)\n", prop.maxTexture3D[0], prop.maxTexture3D[1], prop.maxTexture3D[2]);
+		//printf("Max Dimensions for 2D texture arrays: (%d, %d, %d)\n", prop.maxTexture2DArray[0], prop.maxTexture2DArray[1], prop.maxTexture2DArray[2]);
 	}	
 	return(0);
 }
