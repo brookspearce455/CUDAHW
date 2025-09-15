@@ -78,8 +78,9 @@ __device__ float escapeOrNotColor (float x, float y)
 	}
 	else
 	{
-		return(1.0);
+		return(1);
 	}
+	
 }
 
 __global__ void kernel(float *pixels,float XMin,float XMax,float YMin,float YMax,int WindowHeight,int WindowWidth) 	
@@ -97,8 +98,8 @@ __global__ void kernel(float *pixels,float XMin,float XMax,float YMin,float YMax
 		if (y < YMax && x < XMax)
 		{
 			pixels[idx] = escapeOrNotColor(x,y);	
-			pixels[idx+1] = 0.0; 
-			pixels[idx+2] = 0.0;		
+			pixels[idx+1] = 0;
+			pixels[idx+2] = 0;		
 			
 		}
 		return; 
@@ -138,7 +139,7 @@ int main(int argc, char** argv)
 	cudaMalloc(&DevicePixels, WindowWidth*WindowHeight*3*sizeof(float));
 	cudaErrorCheck(__FILE__, __LINE__);
 	
-	freeMemory(onExit);
+	atexit(freeMemory);
 
    	glutInit(&argc, argv);
 	glutInitDisplayMode(GLUT_RGB | GLUT_SINGLE);
@@ -147,4 +148,3 @@ int main(int argc, char** argv)
    	glutDisplayFunc(display);
    	glutMainLoop();
 }
-
