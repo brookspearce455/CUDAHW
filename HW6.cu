@@ -38,8 +38,8 @@ dim3 BlockSize;
 // Function prototypes
 void cudaErrorCheck(const char*, int);
 float escapeOrNotColor(float, float);
-__global__ void kernel(float* pixels);
-void display(void);
+__global__ void kernel(float* pixels,float XMin,float XMax,float YMin,float YMax,int WindowHeight,int WindowWidth);
+void display(void);	
 void freeMemory();
 
 void cudaErrorCheck(const char *file, int line)
@@ -87,12 +87,12 @@ __global__ void kernel(float *pixels,float XMin,float XMax,float YMin,float YMax
 	    
 		int ix = blockIdx.x * blockDim.x + threadIdx.x;
 		int iy = blockIdx.y * blockDim.y + threadIdx.y;
-		stepSizeX = (XMax - XMin)/((float)WindowWidth);
-		stepSizeY = (YMax - YMin)/((float)WindowHeight);
+		float stepSizeX = (XMax - XMin)/((float)WindowWidth);
+		float stepSizeY = (YMax - YMin)/((float)WindowHeight);
 		
-		int idx = (iy * width + ix) * 3; 
-		x = stepSizeX * ix +  XMin;
-		y = stepSizeY * iy + YMin;
+		int idx = (iy * WindowWidth + ix) * 3; 
+		float x = stepSizeX * ix +  XMin;
+		float y = stepSizeY * iy + YMin;
 		
 		if (y < YMax && x < XMax)
 		{
@@ -109,18 +109,18 @@ void display(void)
 	BlockSize.x = 16;
 	BlockSize.y = 16;
 	BlockSize.z = 1;
-	GridSize.x = (WindowWidth  + block.x - 1) / block.x;
-	GridSize.y = (WindowHeight  + block.y - 1) / block.y;
+	GridSize.x = (WindowWidth  + BlockSize.x - 1) / BlockSize.x;
+	GridSize.y = (WindowHeight  + BlockSize.y - 1) / BlockSize.y;
 	GridSize.z = 1;
 	
 	kernel<<<GridSize, BlockSize>>>(DevicePixels,XMin,XMax,YMin,YMax,WindowHeight,WindowWidth);
 	
-	cudaErrorCheck();
-	CudaDeviceSynchronize();
-	cudaErrorCheck;
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaDeviceSynchronize();
+	cudaErrorCheck(__FILE__, __LINE__);
 	
 	cudaMemcpy(HostPixels, DevicePixels, WindowWidth*WindowHeight*3*sizeof(float), cudaMemcpyDeviceToHost);
-	cudaErrorCheck;
+	cudaErrorCheck(__FILE__, __LINE__);
 	
 	//Putting pixels on the screen.
 	glDrawPixels(WindowWidth, WindowHeight, GL_RGB, GL_FLOAT, HostPixels); 
@@ -136,7 +136,7 @@ int main(int argc, char** argv)
 { 
 	HostPixels = (float *)malloc(WindowWidth*WindowHeight*3*sizeof(float));
 	cudaMalloc(&DevicePixels, WindowWidth*WindowHeight*3*sizeof(float));
-	cudaErrorCheck;
+	cudaErrorCheck(__FILE__, __LINE__);
 	
 	freeMemory(onExit);
 
