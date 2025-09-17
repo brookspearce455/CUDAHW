@@ -19,15 +19,15 @@
 
 // Defines
 #define MAXMAG 10.0 // If you grow larger than this, we assume that you have escaped.
-#define MAXITERATIONS 1000 // If you have not escaped after this many attempts, we assume you are not going to escape.
+#define MAXITERATIONS 500 // If you have not escaped after this many attempts, we assume you are not going to escape.
 #define PI 3.14159265358979323846
 
 //#define A  -0.824	//Real part of C
 //#define B  -0.1711	//Imaginary part of C
 
 // Global variables
-unsigned int WindowWidth = 516;
-unsigned int WindowHeight = 516;
+unsigned int WindowWidth = 1024;
+unsigned int WindowHeight = 1024;
 float *HostPixels;
 float *DevicePixels;
 const float A = -0.824;
@@ -80,14 +80,34 @@ __device__ float escapeOrNotColor(float x, float y, double aStep, double bStep)
 		mag = sqrtf(x*x + y*y);
 		count++;
 	}
-	float gradient = count/maxCount;
-	if(count < maxCount) 
+	
+	if(count == maxCount) 
 	{
-		return(1-gradient);
+		return(0.0);
+		
 	}
 	else
 	{
-		return(0.0);
+		float smooth = count - logf(logf(mag))/ logf(2);
+		smooth = smooth / MAXITERATIONS;
+		return fminf(fmaxf(smooth, 0.0),1.0);
+	}
+}
+__device__ void hsv2rgb(float hue, float saturation, float v, float &r, float &g, float &b)
+{
+	int i = floorf(hue);
+	float f = hue-i;
+	float p = v * (1.0-saturation);
+	float q = v * (1.0-saturation*f);
+	float t = v * (1.0-saturation*(1.0-f));
+	switch(i % 6)
+	{
+		case 0: r=v; g=t; b=p; break;
+		case 1: r=q; g=v; b=p; break;
+		case 2: r=p; g=q; b=t; break;
+		case 3: r=p; g=p; b=v; break;
+		case 4: r=t; g=p; b=v; break;
+		default:r=v; g=p; b=q; break;
 	}
 }
 
@@ -106,30 +126,25 @@ __global__ void kernel(float *pixels,float XMin,float XMax,float YMin,float YMax
 		float x = stepSizeX * ix +  XMin;
 		float y = stepSizeY * iy + YMin;
 		
+		
+		
 		if (y < YMax && x < XMax)
 		{
-			pixels[idx] = escapeOrNotColor(x,y,aStep,bStep);	
-			pixels[idx+1] = 0.0; 
-			pixels[idx+2] = 0.0;		
+			float output = escapeOrNotColor(x,y,aStep,bStep);
+			float hue = output * 100.0;
+			float s = 1.0f;
+			float v = 1.0f;
+			float r,g,b;
+			hsv2rgb(hue,s,v,r,g,b);
+			
+			pixels[idx] = r*output+output;
+			pixels[idx+1] = g*output+output; 
+			pixels[idx+2] = b*output+output;		
 			
 		}
 		return; 
 }
-void initGL() {
-    glDisable(GL_DEPTH_TEST);
-    glClearColor(0.f, 0.f, 0.f, 1.f);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);  // important for tightly packed float RGB
 
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    // Ortho so pixel coords map 1:1 to window
-    gluOrtho2D(0, WindowWidth, 0, WindowHeight);
-
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-
-    glViewport(0, 0, WindowWidth, WindowHeight);
-}
 
 void display(void) 
 { 
@@ -152,9 +167,6 @@ void display(void)
 	cudaMemcpy(HostPixels, DevicePixels, WindowWidth*WindowHeight*3*sizeof(float), cudaMemcpyDeviceToHost);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
-	//glClear(GL_COLOR_BUFFER_BIT);
-	//glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-        
     
 	
 	//Putting pixels on the screen.
@@ -165,10 +177,10 @@ void display(void)
 void animate(void)
 {
 	const float radius = 0.25f;
-	float t = 0.00005f * glutGet(GLUT_ELAPSED_TIME);
-	aStep = A + radius * cosf(2*PI*t);
-	bStep = B + radius * cosf(2*PI*t); 
-	printf("t = %f\n",t);
+	float t = 0.0000001* glutGet(GLUT_ELAPSED_TIME)+10.008;
+	aStep = (0.5*cos(2*PI*t) - 0.25*cos(4*PI*t));//A + radius * cosf(2*PI*t);
+	bStep = (0.5*sin(2*PI*t) - 0.25*sin(4*PI*t));//B + radius * cosf(2*PI*t); 
+	printf("Time: %f\n",t);
 	
 	
 	glutPostRedisplay();
@@ -192,7 +204,7 @@ int main(int argc, char** argv)
 	glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE);
    	glutInitWindowSize(WindowWidth, WindowHeight);
 	glutCreateWindow("Fractals--Man--Fractals");
-	//initGL();
+	
 	
    	glutDisplayFunc(display);
 	glutIdleFunc(animate);
