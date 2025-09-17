@@ -26,6 +26,7 @@ unsigned int WindowWidth = 1024;
 unsigned int WindowHeight = 1024;
 float *HostPixels;
 float *DevicePixels;
+double aStep,bStep;
 
 float XMin = -2.0;
 float XMax =  2.0;
@@ -55,7 +56,7 @@ void cudaErrorCheck(const char *file, int line)
 	}
 }
 
-__device__ float escapeOrNotColor (float x, float y, float A, float B) 
+__device__ float escapeOrNotColor(float x, float y, double aStep, double bStep) 
 {
 	float mag,tempX;
 	int count;
@@ -68,8 +69,8 @@ __device__ float escapeOrNotColor (float x, float y, float A, float B)
 	while (mag < maxMag && count < maxCount) 
 	{	
 		tempX = x; //We will be changing the x but we need its old value to find y.
-		x = x*x - y*y + A;
-		y = (2.0 * tempX * y) + B;
+		x = x*x - y*y + aStep;
+		y = (2.0 * tempX * y) + bStep;
 		mag = sqrt(x*x + y*y);
 		count++;
 	}
@@ -83,7 +84,7 @@ __device__ float escapeOrNotColor (float x, float y, float A, float B)
 	}
 }
 
-__global__ void kernel(float *pixels,float XMin,float XMax,float YMin,float YMax,int WindowHeight,int WindowWidth,double A, double B) 	
+__global__ void kernel(float *pixels,float XMin,float XMax,float YMin,float YMax,int WindowHeight,int WindowWidth,double aStep, double bStep) 	
 {
 	    
 		int ix = blockIdx.x * blockDim.x + threadIdx.x;
@@ -100,7 +101,7 @@ __global__ void kernel(float *pixels,float XMin,float XMax,float YMin,float YMax
 		
 		if (y < YMax && x < XMax)
 		{
-			pixels[idx] = escapeOrNotColor(x,y,A,B);	
+			pixels[idx] = escapeOrNotColor(x,y,aStep,bStep);	
 			pixels[idx+1] = 0.0; 
 			pixels[idx+2] = 0.0;		
 			
@@ -154,7 +155,7 @@ int main(int argc, char** argv)
 	cudaMalloc(&DevicePixels, WindowWidth*WindowHeight*3*sizeof(float));
 	cudaErrorCheck(__FILE__, __LINE__);
 	
-	freeMemory(onExit);
+	atexit(freeMemory);
 
    	glutInit(&argc, argv);
 	glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE);
@@ -167,4 +168,3 @@ int main(int argc, char** argv)
 	double bStep;
    	glutMainLoop(); 
 }
-
