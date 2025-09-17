@@ -1,6 +1,7 @@
 // Name: Brooks Pearce
 // Simple Julia CPU.
 // nvcc HW6.cu -o temp -lglut -lGL
+// nvcc HW7.cu -o temp -lglut -lGLU -lGL -lm
 // glut and GL are openGL libraries.
 /*
  What to do:
@@ -14,6 +15,7 @@
 #include <GL/glut.h>
 #include <math.h>
 #include <cuda_runtime.h>
+#include <GL/gl.h> 
 
 // Defines
 #define MAXMAG 10.0 // If you grow larger than this, we assume that you have escaped.
@@ -38,7 +40,7 @@ dim3 BlockSize;
 
 // Function prototypes
 void cudaErrorCheck(const char*, int);
-__device__ float escapeOrNotColor(float, float);
+__device__ float escapeOrNotColor(float, float, double, double);
 __global__ void kernel(float* pixels,float XMin,float XMax,float YMin,float YMax,int WindowHeight,int WindowWidth,double aStep,double bStep);
 void display(void);	
 void animate(void);
@@ -65,13 +67,13 @@ __device__ float escapeOrNotColor(float x, float y, double aStep, double bStep)
 	float maxMag = MAXMAG;
 	
 	count = 0;
-	mag = sqrt(x*x + y*y);;
+	mag = sqrtf(x*x + y*y);;
 	while (mag < maxMag && count < maxCount) 
 	{	
 		tempX = x; //We will be changing the x but we need its old value to find y.
 		x = x*x - y*y + aStep;
 		y = (2.0 * tempX * y) + bStep;
-		mag = sqrt(x*x + y*y);
+		mag = sqrtf(x*x + y*y);
 		count++;
 	}
 	if(count < maxCount) 
@@ -84,7 +86,7 @@ __device__ float escapeOrNotColor(float x, float y, double aStep, double bStep)
 	}
 }
 
-__global__ void kernel(float *pixels,float XMin,float XMax,float YMin,float YMax,int WindowHeight,int WindowWidth,double aStep, double bStep) 	
+__global__ void kernel(float *pixels,float XMin,float XMax,float YMin,float YMax,int WindowHeight,int WindowWidth,double A, double B) 	
 {
 	    
 		int ix = blockIdx.x * blockDim.x + threadIdx.x;
@@ -101,13 +103,39 @@ __global__ void kernel(float *pixels,float XMin,float XMax,float YMin,float YMax
 		
 		if (y < YMax && x < XMax)
 		{
-			pixels[idx] = escapeOrNotColor(x,y,aStep,bStep);	
+			pixels[idx] = escapeOrNotColor(x,y,A,B);	
 			pixels[idx+1] = 0.0; 
 			pixels[idx+2] = 0.0;		
 			
 		}
 		return; 
 }
+void initGL() {
+    glDisable(GL_DEPTH_TEST);
+    glClearColor(0.f, 0.f, 0.f, 1.f);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);  // important for tightly packed float RGB
+
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    // Ortho so pixel coords map 1:1 to window
+    gluOrtho2D(0, WindowWidth, 0, WindowHeight);
+
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+
+    glViewport(0, 0, WindowWidth, WindowHeight);
+}
+
+/*void reshape(int w, int h){
+    WindowWidth = w; WindowHeight = h;
+    glViewport(0,0,w,h);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    gluOrtho2D(0, w, 0, h);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+}*/
+
 void display(void) 
 { 
 	// Set Block & Grid Dim
@@ -127,19 +155,22 @@ void display(void)
 	cudaMemcpy(HostPixels, DevicePixels, WindowWidth*WindowHeight*3*sizeof(float), cudaMemcpyDeviceToHost);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
+	glClear(GL_COLOR_BUFFER_BIT);
+    glRasterPos2i(0, 0); 
+    glPixelZoom(1.0f, 1.0f); 
+	
 	//Putting pixels on the screen.
 	glDrawPixels(WindowWidth, WindowHeight, GL_RGB, GL_FLOAT, HostPixels); 
-	glFlush(); 
+	//glFlush(); 
 	glutSwapBuffers();
 }
 void animate(void)
 {
 	const int radius = 0.5;
 	const int omega = 0.5;
-	int t = 0;
-	aStep = A + radius*cos(omega*t);
-	bStep = B + radius*sin(omega*t);
-	t = t + 0.01;
+	float t = 0.001f * (float)glutGet(GLUT_ELAPSED_TIME);
+	aStep = A + radius*cosf(omega*t);
+	bStep = B + radius*sinf(omega*t);
 	
 	glutPostRedisplay();
 }
@@ -151,6 +182,9 @@ void freeMemory() {
 
 int main(int argc, char** argv)
 { 
+	aStep = A;
+	bStep = B ;
+	
 	HostPixels = (float *)malloc(WindowWidth*WindowHeight*3*sizeof(float));
 	cudaMalloc(&DevicePixels, WindowWidth*WindowHeight*3*sizeof(float));
 	cudaErrorCheck(__FILE__, __LINE__);
@@ -161,10 +195,12 @@ int main(int argc, char** argv)
 	glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE);
    	glutInitWindowSize(WindowWidth, WindowHeight);
 	glutCreateWindow("Fractals--Man--Fractals");
+	initGL();
+	//glutReshapeFunc(reshape);
    	glutDisplayFunc(display);
 	glutIdleFunc(animate);
+
 	
-	double aStep;
-	double bStep;
    	glutMainLoop(); 
 }
+
