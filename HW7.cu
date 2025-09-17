@@ -18,8 +18,8 @@
 // Defines
 #define MAXMAG 10.0 // If you grow larger than this, we assume that you have escaped.
 #define MAXITERATIONS 200 // If you have not escaped after this many attempts, we assume you are not going to escape.
-//#define A  -0.824	//Real part of C
-//#define B  -0.1711	//Imaginary part of C
+#define A  -0.824	//Real part of C
+#define B  -0.1711	//Imaginary part of C
 
 // Global variables
 unsigned int WindowWidth = 1024;
@@ -37,9 +37,10 @@ dim3 BlockSize;
 
 // Function prototypes
 void cudaErrorCheck(const char*, int);
-float escapeOrNotColor(float, float);
-__global__ void kernel(float* pixels,float XMin,float XMax,float YMin,float YMax,int WindowHeight,int WindowWidth,float A,float B);
+__device__ float escapeOrNotColor(float, float);
+__global__ void kernel(float* pixels,float XMin,float XMax,float YMin,float YMax,int WindowHeight,int WindowWidth,double aStep,double bStep);
 void display(void);	
+void animate(void);
 void freeMemory();
 
 void cudaErrorCheck(const char *file, int line)
@@ -82,13 +83,16 @@ __device__ float escapeOrNotColor (float x, float y, float A, float B)
 	}
 }
 
-__global__ void kernel(float *pixels,float XMin,float XMax,float YMin,float YMax,int WindowHeight,int WindowWidth,float A, float B) 	
+__global__ void kernel(float *pixels,float XMin,float XMax,float YMin,float YMax,int WindowHeight,int WindowWidth,double A, double B) 	
 {
 	    
 		int ix = blockIdx.x * blockDim.x + threadIdx.x;
 		int iy = blockIdx.y * blockDim.y + threadIdx.y;
+		if (ix >= WindowWidth || iy >= WindowHeight) return;
+		
 		float stepSizeX = (XMax - XMin)/((float)WindowWidth);
 		float stepSizeY = (YMax - YMin)/((float)WindowHeight);
+		
 		
 		int idx = (iy * WindowWidth + ix) * 3; 
 		float x = stepSizeX * ix +  XMin;
@@ -113,14 +117,7 @@ void display(void)
 	GridSize.y = (WindowHeight  + BlockSize.y - 1) / BlockSize.y;
 	GridSize.z = 1;
 	
-	const float A = -0.824;	//Real part of C
-	const float B = -0.1711;	//Imaginary part of C
-	const float omega = 0.5;
-	const float radius = 0.5;
-	
-	float A1 = A + radius*cos(omega*t);
-	float B1 = B + radius*sin(omega*t);
-	kernel<<<GridSize, BlockSize>>>(DevicePixels,XMin,XMax,YMin,YMax,WindowHeight,WindowWidth,A,B);
+	kernel<<<GridSize, BlockSize>>>(DevicePixels,XMin,XMax,YMin,YMax,WindowHeight,WindowWidth,aStep,bStep);
 	
 	cudaErrorCheck(__FILE__, __LINE__);
 	cudaDeviceSynchronize();
@@ -132,9 +129,17 @@ void display(void)
 	//Putting pixels on the screen.
 	glDrawPixels(WindowWidth, WindowHeight, GL_RGB, GL_FLOAT, HostPixels); 
 	glFlush(); 
+	glutSwapBuffers();
 }
-void idle(void)
+void animate(void)
 {
+	const int radius = 0.5;
+	const int omega = 0.5;
+	int t = 0;
+	aStep = A + radius*cos(omega*t);
+	bStep = B + radius*sin(omega*t);
+	t = t + 0.01;
+	
 	glutPostRedisplay();
 }
 void freeMemory() {
@@ -156,7 +161,10 @@ int main(int argc, char** argv)
    	glutInitWindowSize(WindowWidth, WindowHeight);
 	glutCreateWindow("Fractals--Man--Fractals");
    	glutDisplayFunc(display);
-	glutIdleFunction(idle);
-   	glutMainLoop();
+	glutIdleFunc(animate);
+	
+	double aStep;
+	double bStep;
+   	glutMainLoop(); 
 }
 
