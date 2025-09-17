@@ -20,8 +20,8 @@
 // Defines
 #define MAXMAG 10.0 // If you grow larger than this, we assume that you have escaped.
 #define MAXITERATIONS 200 // If you have not escaped after this many attempts, we assume you are not going to escape.
-#define A  -0.824	//Real part of C
-#define B  -0.1711	//Imaginary part of C
+//#define A  -0.824	//Real part of C
+//#define B  -0.1711	//Imaginary part of C
 
 // Global variables
 unsigned int WindowWidth = 1024;
@@ -29,6 +29,8 @@ unsigned int WindowHeight = 1024;
 float *HostPixels;
 float *DevicePixels;
 double aStep,bStep;
+const float A = -0.824;
+const floT B = -0.1711;
 
 float XMin = -2.0;
 float XMax =  2.0;
@@ -86,7 +88,7 @@ __device__ float escapeOrNotColor(float x, float y, double aStep, double bStep)
 	}
 }
 
-__global__ void kernel(float *pixels,float XMin,float XMax,float YMin,float YMax,int WindowHeight,int WindowWidth,double A, double B) 	
+__global__ void kernel(float *pixels,float XMin,float XMax,float YMin,float YMax,int WindowHeight,int WindowWidth,double aStep, double bStep) 	
 {
 	    
 		int ix = blockIdx.x * blockDim.x + threadIdx.x;
@@ -103,7 +105,7 @@ __global__ void kernel(float *pixels,float XMin,float XMax,float YMin,float YMax
 		
 		if (y < YMax && x < XMax)
 		{
-			pixels[idx] = escapeOrNotColor(x,y,A,B);	
+			pixels[idx] = escapeOrNotColor(x,y,aStep,bStep);	
 			pixels[idx+1] = 0.0; 
 			pixels[idx+2] = 0.0;		
 			
@@ -156,8 +158,9 @@ void display(void)
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	glClear(GL_COLOR_BUFFER_BIT);
-    glRasterPos2i(0, 0); 
-    glPixelZoom(1.0f, 1.0f); 
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
+    glWindowPos2i(0, 0); 
+    
 	
 	//Putting pixels on the screen.
 	glDrawPixels(WindowWidth, WindowHeight, GL_RGB, GL_FLOAT, HostPixels); 
