@@ -1,6 +1,7 @@
 // Name: Brooks Pearce
 // Simple Julia CPU.
 // nvcc HW6.cu -o temp -lglut -lGL
+// nvcc HW7.cu -o temp -lglut -lGLU -lGL -lm
 // glut and GL are openGL libraries.
 /*
  What to do:
@@ -14,19 +15,24 @@
 #include <GL/glut.h>
 #include <math.h>
 #include <cuda_runtime.h>
+#include <GL/gl.h> 
 
 // Defines
 #define MAXMAG 10.0 // If you grow larger than this, we assume that you have escaped.
-#define MAXITERATIONS 200 // If you have not escaped after this many attempts, we assume you are not going to escape.
-#define A  -0.824	//Real part of C
-#define B  -0.1711	//Imaginary part of C
+#define MAXITERATIONS 1000 // If you have not escaped after this many attempts, we assume you are not going to escape.
+#define PI 3.14159265358979323846
+
+//#define A  -0.824	//Real part of C
+//#define B  -0.1711	//Imaginary part of C
 
 // Global variables
-unsigned int WindowWidth = 1024;
-unsigned int WindowHeight = 1024;
+unsigned int WindowWidth = 516;
+unsigned int WindowHeight = 516;
 float *HostPixels;
 float *DevicePixels;
-double aStep,bStep;
+const float A = -0.824;
+const float B = -0.1711;
+double aStep = A,bStep = B;
 
 float XMin = -2.0;
 float XMax =  2.0;
@@ -38,7 +44,7 @@ dim3 BlockSize;
 
 // Function prototypes
 void cudaErrorCheck(const char*, int);
-__device__ float escapeOrNotColor(float, float);
+__device__ float escapeOrNotColor(float, float, double, double);
 __global__ void kernel(float* pixels,float XMin,float XMax,float YMin,float YMax,int WindowHeight,int WindowWidth,double aStep,double bStep);
 void display(void);	
 void animate(void);
@@ -65,22 +71,23 @@ __device__ float escapeOrNotColor(float x, float y, double aStep, double bStep)
 	float maxMag = MAXMAG;
 	
 	count = 0;
-	mag = sqrt(x*x + y*y);;
+	mag = sqrtf(x*x + y*y);;
 	while (mag < maxMag && count < maxCount) 
 	{	
 		tempX = x; //We will be changing the x but we need its old value to find y.
 		x = x*x - y*y + aStep;
 		y = (2.0 * tempX * y) + bStep;
-		mag = sqrt(x*x + y*y);
+		mag = sqrtf(x*x + y*y);
 		count++;
 	}
+	float gradient = count/maxCount;
 	if(count < maxCount) 
 	{
-		return(0.0);
+		return(1-gradient);
 	}
 	else
 	{
-		return(1.0);
+		return(0.0);
 	}
 }
 
@@ -108,8 +115,26 @@ __global__ void kernel(float *pixels,float XMin,float XMax,float YMin,float YMax
 		}
 		return; 
 }
+void initGL() {
+    glDisable(GL_DEPTH_TEST);
+    glClearColor(0.f, 0.f, 0.f, 1.f);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);  // important for tightly packed float RGB
+
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    // Ortho so pixel coords map 1:1 to window
+    gluOrtho2D(0, WindowWidth, 0, WindowHeight);
+
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+
+    glViewport(0, 0, WindowWidth, WindowHeight);
+}
+
 void display(void) 
 { 
+	
+	
 	// Set Block & Grid Dim
 	BlockSize.x = 16;
 	BlockSize.y = 16;
@@ -127,19 +152,24 @@ void display(void)
 	cudaMemcpy(HostPixels, DevicePixels, WindowWidth*WindowHeight*3*sizeof(float), cudaMemcpyDeviceToHost);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
+	//glClear(GL_COLOR_BUFFER_BIT);
+	//glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        
+    
+	
 	//Putting pixels on the screen.
 	glDrawPixels(WindowWidth, WindowHeight, GL_RGB, GL_FLOAT, HostPixels); 
-	glFlush(); 
+	
 	glutSwapBuffers();
 }
 void animate(void)
 {
-	const int radius = 0.5;
-	const int omega = 0.5;
-	int t = 0;
-	aStep = A + radius*cos(omega*t);
-	bStep = B + radius*sin(omega*t);
-	t = t + 0.01;
+	const float radius = 0.25f;
+	float t = 0.00005f * glutGet(GLUT_ELAPSED_TIME);
+	aStep = A + radius * cosf(2*PI*t);
+	bStep = B + radius * cosf(2*PI*t); 
+	printf("t = %f\n",t);
+	
 	
 	glutPostRedisplay();
 }
@@ -151,6 +181,7 @@ void freeMemory() {
 
 int main(int argc, char** argv)
 { 
+	
 	HostPixels = (float *)malloc(WindowWidth*WindowHeight*3*sizeof(float));
 	cudaMalloc(&DevicePixels, WindowWidth*WindowHeight*3*sizeof(float));
 	cudaErrorCheck(__FILE__, __LINE__);
@@ -161,10 +192,10 @@ int main(int argc, char** argv)
 	glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE);
    	glutInitWindowSize(WindowWidth, WindowHeight);
 	glutCreateWindow("Fractals--Man--Fractals");
+	//initGL();
+	
    	glutDisplayFunc(display);
 	glutIdleFunc(animate);
 	
-	double aStep;
-	double bStep;
    	glutMainLoop(); 
 }
