@@ -40,7 +40,7 @@ __global__ void dotProductGPU(float*, float*, float*, int);
 bool  check(float, float, float);
 long elaspedTime(struct timeval, struct timeval);
 void cleanUp();
-void percentError(float,float);
+
 // This check to see if an error happened in your CUDA code. It tell you what it thinks went wrong,
 // and what file and line it occured on.
 void cudaErrorCheck(const char *file, int line)
@@ -111,31 +111,34 @@ void dotProductCPU(float *a, float *b, float *C_CPU, int n)
 // This is the kernel. It is the function that will run on the GPU.
 __global__ void dotProductGPU(float *a, float *b, float *C_GPU, int n)
 {
-	__shared__ float cache[BlockSize.x]; // This will allow all the threads
+	__shared__ float cache[1024]; // This will allow all the threads
 	int idx = threadIdx.x;
 	int cacheIndex = threadIdx.x;
-	int i = blockDim.x/2;
+	int i = 1024/2;
+	//int i = 1000/2;
 	float sum = 0;
 	if (threadIdx.x < n)
 	{
-		sum += a[idx] * b[idx];
+		sum = a[idx] * b[idx];
+		cache[cacheIndex] = sum;
+		
 	}
-	cache[cacheIndex] = sum;
 	__syncthreads();
 	 
-	while (i != 0) {
+	while (i > 0) 
+	{
 		if (cacheIndex < i) 
 		{
 			cache[cacheIndex] += cache[cacheIndex + i];
-			
-			i /= 2;
 		}
+		i /=2;
 		__syncthreads();
 	}
 	
+	
 	if (cacheIndex == 0)
 	{
-		C_GPU[idx] = cache[0]; 
+		C_GPU[0] = cache[0]; 
 	}
 	
 }
@@ -187,20 +190,6 @@ void CleanUp()
 	cudaErrorCheck(__FILE__, __LINE__);
 }
 
-// Checking the percent error between GPU and CPU
-void Error(float GPU, float CPU)
-{
-	float error = fabs(GPU - CPU) / CPU;
-	if (error >= Tolerance)
-	{
-		printf("error is too high, error = %f\n",error);
-	}
-	else
-	{
-		printf("error is less than tolerance, error = %f",error);
-	}
-}
-
 int main()
 {
 	timeval start, end;
@@ -219,6 +208,7 @@ int main()
 	gettimeofday(&start, NULL);
 	dotProductCPU(A_CPU, B_CPU, C_CPU, N);
 	DotCPU = C_CPU[0];
+	printf("C_CPU = %f\n",DotCPU);
 	gettimeofday(&end, NULL);
 	timeCPU = elaspedTime(start, end);
 	
@@ -238,7 +228,7 @@ int main()
 	cudaMemcpyAsync(C_CPU, C_GPU, N*sizeof(float), cudaMemcpyDeviceToHost);
 	cudaErrorCheck(__FILE__, __LINE__);
 	DotGPU = C_CPU[0]; // C_GPU was copied into C_CPU.
-	
+	printf("C_GPU = %f\n",DotGPU);
 	// Making sure the GPU and CPU wiat until each other are at the same place.
 	cudaDeviceSynchronize();
 	cudaErrorCheck(__FILE__, __LINE__);
@@ -246,7 +236,7 @@ int main()
 	gettimeofday(&end, NULL);
 	timeGPU = elaspedTime(start, end);
 
-	error(DotGPU, DotCPU);
+	
 	// Checking to see if all went correctly.
 	if(check(DotCPU, DotGPU, Tolerance) == false)
 	{
@@ -268,5 +258,4 @@ int main()
 	return(0);
 
 }
-
 
