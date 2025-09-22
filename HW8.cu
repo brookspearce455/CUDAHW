@@ -115,7 +115,7 @@ __global__ void dotProductGPU(float *a, float *b, float *C_GPU, int n)
 	int cacheIndex = threadIdx.x;
 	int i = blockDim.x/2;
 	float sum = 0;
-	while(threadIdx.x < n)
+	if (threadIdx.x < n)
 	{
 		sum += a[idx] * b[idx];
 	}
@@ -250,4 +250,5 @@ int main()
 	printf("\n\n");
 	
 	return(0);
+
 }
