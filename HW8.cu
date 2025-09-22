@@ -245,7 +245,8 @@ int main()
 
 	gettimeofday(&end, NULL);
 	timeGPU = elaspedTime(start, end);
-	
+
+	error(DotGPU, DotCPU);
 	// Checking to see if all went correctly.
 	if(check(DotCPU, DotGPU, Tolerance) == false)
 	{
@@ -267,4 +268,5 @@ int main()
 	return(0);
 
 }
+
 
