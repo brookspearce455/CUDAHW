@@ -17,6 +17,7 @@
 // Include files
 #include <sys/time.h>
 #include <stdio.h>
+#include <math.h>
 
 // Defines
 #define N 823 // Length of the vector
@@ -39,7 +40,7 @@ __global__ void dotProductGPU(float*, float*, float*, int);
 bool  check(float, float, float);
 long elaspedTime(struct timeval, struct timeval);
 void cleanUp();
-
+void percentError(float,float);
 // This check to see if an error happened in your CUDA code. It tell you what it thinks went wrong,
 // and what file and line it occured on.
 void cudaErrorCheck(const char *file, int line)
@@ -186,6 +187,20 @@ void CleanUp()
 	cudaErrorCheck(__FILE__, __LINE__);
 }
 
+// Checking the percent error between GPU and CPU
+void Error(float GPU, float CPU)
+{
+	float error = fabs(GPU - CPU) / CPU;
+	if (error >= Tolerance)
+	{
+		printf("error is too high, error = %f\n",error);
+	}
+	else
+	{
+		printf("error is less than tolerance, error = %f",error);
+	}
+}
+
 int main()
 {
 	timeval start, end;
@@ -252,3 +267,4 @@ int main()
 	return(0);
 
 }
+
