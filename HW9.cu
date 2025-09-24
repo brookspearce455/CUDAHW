@@ -107,20 +107,20 @@ void dotProductCPU(float *a, float *b, float *C_CPU, int n)
 // It adds vectors a and b on the GPU then stores result in vector c.
 __global__ void dotProductGPU(float *a, float *b, float *c, int n)
 {
-	__shared__ float cache[1024];
+	__shared__ float cache[200];
 	int id = threadIdx.x + blockDim.x * blockIdx.x;
 	int cacheIndex = threadIdx.x;
-	int stride = blockDim.x;
+	
 	float sum = 0;
 	
-	while(stride < n)
+	while(id < n)
 	{
 		sum+= a[id] * b[id];
-		__syncthreads();
-		stride += stride;
+		id += blockDim.x * gridDim.x;
 	
 	}
 	cache[cacheIndex] = sum;
+        __syncthreads();
 	
 	int fold = blockDim.x;
 	while(1 < fold)
