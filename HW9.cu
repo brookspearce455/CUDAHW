@@ -110,12 +110,15 @@ __global__ void dotProductGPU(float *a, float *b, float *c, int n)
 	__shared__ float cache[1024];
 	int id = threadIdx.x + blockDim.x * blockIdx.x;
 	int cacheIndex = threadIdx.x;
+	int stride = blockDim.x;
 	float sum = 0;
 	
 	while(stride < n)
 	{
-		sum+= = a[id] * b[id];
+		sum+= a[id] * b[id];
 		__syncthreads();
+		stride += stride;
+	
 	}
 	cache[cacheIndex] = sum;
 	
