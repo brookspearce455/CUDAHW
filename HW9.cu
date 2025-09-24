@@ -15,15 +15,16 @@
 #include <stdio.h>
 
 // Defines
-#define N 1000 // Length of the vector
+#define N 500000 // Length of the vector
 
 // Global variables
 float *A_CPU, *B_CPU, *C_CPU; //CPU pointers
 float *A_GPU, *B_GPU, *C_GPU; //GPU pointers
-float DotCPU, DotGPU;
+float DotCPU, DotGPU = 0;
 dim3 BlockSize; //This variable will hold the Dimensions of your blocks
 dim3 GridSize; //This variable will hold the Dimensions of your grid
 float Tolerance = 0.01;
+
 
 // Function prototypes
 void cudaErrorCheck(const char *, int);
@@ -107,39 +108,39 @@ void dotProductCPU(float *a, float *b, float *C_CPU, int n)
 // It adds vectors a and b on the GPU then stores result in vector c.
 __global__ void dotProductGPU(float *a, float *b, float *c, int n)
 {
-	__shared__ float cache[200];
+	__shared__ float cache[256];
 	int id = threadIdx.x + blockDim.x * blockIdx.x;
 	int cacheIndex = threadIdx.x;
 	
-	float sum = 0;
-	
-	while(id < n)
+	if(cacheIndex < 56)
 	{
-		sum+= a[id] * b[id];
-		id += blockDim.x * gridDim.x;
-	
+	cache[blockDim.x + cacheIndex] = 0;
 	}
-	cache[cacheIndex] = sum;
+	
+	if(id < n)
+	{
+		cache[cacheIndex] = a[id] * b[id];
+	}
+	
         __syncthreads();
 	
-	int fold = blockDim.x;
-	while(1 < fold)
+	int fold = 256/2;
+	while (fold > 0) 
 	{
-		if(fold%2 != 0)
-		{
-			if(cacheIndex < fold )
-			{
-				c[0] = cache[0] + cache[fold - 1];
-			}
-			fold = fold - 1;
-		}
-		fold = fold/2;
-		if(id < fold && (id + fold) < n)
+		if (cacheIndex < fold) 
 		{
 			cache[cacheIndex] += cache[cacheIndex + fold];
 		}
+		fold /=2;
 		__syncthreads();
 	}
+	
+	
+	if (cacheIndex == 0)
+	{
+		c[blockIdx.x] = cache[0]; 
+	}
+	
 }
 
 // Checking to see if anything went wrong in the vector addition.
@@ -211,13 +212,7 @@ int main()
 	gettimeofday(&end, NULL);
 	timeCPU = elaspedTime(start, end);
 	
-	if(BlockSize.x < N)
-	{
-		printf("\n\n Your vector size is larger than the block size.");
-		printf("\n Because we are only using one block this will not work.");
-		printf("\n Good Bye.\n\n");
-		exit(0);
-	}
+	
 	
 	// Adding on the GPU
 	gettimeofday(&start, NULL);
@@ -232,10 +227,14 @@ int main()
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	// Copy Memory from GPU to CPU	
-	cudaMemcpyAsync(C_CPU, C_GPU, 1*sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpyAsync(C_CPU, C_GPU, GridSize.x*sizeof(float), cudaMemcpyDeviceToHost);
 	cudaErrorCheck(__FILE__, __LINE__);
-	DotGPU = C_CPU[0]; // C_GPU was copied into C_CPU.
+	for(int i = 0; i < GridSize.x; i++)
+	{
+		DotGPU += C_CPU[i];
+	}
 	
+	printf("DotCPU: %f\nDotGPU: %f",DotCPU,DotGPU);
 	// Making sure the GPU and CPU wiat until each other are at the same place.
 	cudaDeviceSynchronize();
 	cudaErrorCheck(__FILE__, __LINE__);
