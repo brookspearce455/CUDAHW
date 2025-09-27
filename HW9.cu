@@ -1,13 +1,33 @@
+
 // Name: Brooks Pearce
-// Vector Dot product on many block and useing shared memory
-// nvcc HW9.cu -o temp
+// Robust Vector Dot product 
+// nvcc HW10.cu -o temp
 /*
  What to do:
- This code is the solution to HW8. It finds the dot product of vectors that are smaller than the block size.
- Extend this code so that it sets as many blocks as needed for a set thread count and vector length.
- Use shared memory in your blocks to speed up your code.
- You will have to do the final reduction on the CPU.
- Set your thread count to 200 (block size = 200). Set N to different values to check your code.
+ This code is the solution to HW9. It computes the dot product of vectors of any length and uses shared memory to 
+ reduce the number of calls to global memory. However, because blocks can't sync, it must perform the final reduction 
+ on the CPU. 
+ To make this code a little less complicated on the GPU let do some pregame stuff and use atomic adds.
+ 1. Make sure the number of threads on a block are a power of 2 so we don't have to see if the fold is going to be
+    even. Because if it is not even we had to add the last element to the first reduce the fold by 1 and then fold. 
+    If it is not even tell your client what is wrong and exit.
+ 2. Find the right number of blocks to finish the job. But, it is possible that the grid demention is too big. I know
+    it is a large number but it is finite. So use device properties to see if the grid is too big for the machine 
+    you are on and while you are at it make sure the blocks are not to big too. Maybe you wrote the code on a new GPU 
+    but your client is using an old GPU. Check both and if either is out of bound report it to your client then kindly
+    exit the program.
+ 3. Always checking to see if you have threads working past your vector is a real pain and adds a bunch of time consumming
+    if statments to your GPU code. To get around this findout how much you would have to add to your vector to make it 
+    perfectly fit in your block and grid layout and pad it with zeros. Multipying zeros and adding zero do nothing to a 
+    dot product. If you were luck on HW8 you kind of did this but you just got lucky because most of the time the GPU sets
+    everything to zero at start up. But!!!, you don't want to put code out where you are just lucky soooo do a cudaMemset
+    so you know everything is zero. Then copy up the now zero values.
+ 4. In HW9 we had to do the final add "reduction' on the CPU because we can't sync block. Use atomic add to get around 
+    this and finish the job on the GPU. Also you will have to copy this final value down to the CPU with a cudaMemCopy.
+    But!!! We are working with floats and atomics with floats can only be done on GPUs with major compute capability 3 
+    or higher. Use device properties to check if this is true. And, while you are at it check to see if you have more
+    than 1 GPU and if you do select the best GPU based on compute capablity.
+ 5. Add any additional bells and whistles to the code that you thing would make the code better and more foolproof.
 */
 
 // Include files
@@ -15,23 +35,24 @@
 #include <stdio.h>
 
 // Defines
-#define N 500000 // Length of the vector
+#define N 1000 // Length of the vector
+#define BLOCK_SIZE 516 // Threads in a block
 
 // Global variables
 float *A_CPU, *B_CPU, *C_CPU; //CPU pointers
 float *A_GPU, *B_GPU, *C_GPU; //GPU pointers
-float DotCPU, DotGPU = 0;
+float DotCPU, DotGPU;
 dim3 BlockSize; //This variable will hold the Dimensions of your blocks
 dim3 GridSize; //This variable will hold the Dimensions of your grid
 float Tolerance = 0.01;
-
+int NwithZeros;
 
 // Function prototypes
 void cudaErrorCheck(const char *, int);
 void setUpDevices();
 void allocateMemory();
 void innitialize();
-void dotProductCPU(float*, float*, int);
+void dotProductCPU(float*, float*, int, int);
 __global__ void dotProductGPU(float*, float*, float*, int);
 bool  check(float, float, float);
 long elaspedTime(struct timeval, struct timeval);
@@ -54,39 +75,47 @@ void cudaErrorCheck(const char *file, int line)
 // This will be the layout of the parallel space we will be using.
 void setUpDevices()
 {
-	BlockSize.x = 200;
+	BlockSize.x = BLOCK_SIZE;
 	BlockSize.y = 1;
 	BlockSize.z = 1;
 	
-	GridSize.x = (N + BlockSize.x - 1) / BlockSize.x;
+	GridSize.x = (N - 1)/BlockSize.x + 1; // This gives us the correct number of blocks.
 	GridSize.y = 1;
 	GridSize.z = 1;
+	
+	NwithZeros = BlockSize.x * GridSize.x;
 }
 
 // Allocating the memory we will be using.
 void allocateMemory()
 {	
 	// Host "CPU" memory.				
-	A_CPU = (float*)malloc(N*sizeof(float));
-	B_CPU = (float*)malloc(N*sizeof(float));
-	C_CPU = (float*)malloc(N*sizeof(float));
+	A_CPU = (float*)malloc(NwithZeros*sizeof(float));
+	B_CPU = (float*)malloc(NwithZeros*sizeof(float));
+	C_CPU = (float*)malloc(NwithZeros*sizeof(float));
 	
 	// Device "GPU" Memory
-	cudaMalloc(&A_GPU,N*sizeof(float));
+	cudaMalloc(&A_GPU,NwithZeros*sizeof(float));
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&B_GPU,N*sizeof(float));
+	cudaMalloc(&B_GPU,NwithZeros*sizeof(float));
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&C_GPU,N*sizeof(float));
+	cudaMalloc(&C_GPU,NwithZeros*sizeof(float));
 	cudaErrorCheck(__FILE__, __LINE__);
 }
 
 // Loading values into the vectors that we will add.
 void innitialize()
 {
+	
 	for(int i = 0; i < N; i++)
 	{		
 		A_CPU[i] = (float)i;	
 		B_CPU[i] = (float)(3*i);
+	}
+	for(int i = N; i < NwithZeros; i++)
+	{
+		A_CPU[i] = 0;
+		B_CPU[i] = 0;
 	}
 }
 
@@ -106,25 +135,25 @@ void dotProductCPU(float *a, float *b, float *C_CPU, int n)
 
 // This is the kernel. It is the function that will run on the GPU.
 // It adds vectors a and b on the GPU then stores result in vector c.
-__global__ void dotProductGPU(float *a, float *b, float *c, int n)
+__global__ void dotProductGPU(float *a, float *b, float *c, int n, int NwithZeros)
 {
-	__shared__ float cache[256];
+	
+__shared__ float cache[516];
 	int id = threadIdx.x + blockDim.x * blockIdx.x;
 	int cacheIndex = threadIdx.x;
 	
-	if(cacheIndex < 56)
+	for (int i = 0; i < NwithZeros; i++)
 	{
-	cache[blockDim.x + cacheIndex] = 0;
+		c[i] = 0;
 	}
 	
 	if(id < n)
 	{
 		cache[cacheIndex] = a[id] * b[id];
 	}
-	
         __syncthreads();
 	
-	int fold = 256/2;
+	int fold = blockDim.x/2;
 	while (fold > 0) 
 	{
 		if (cacheIndex < fold) 
@@ -135,10 +164,12 @@ __global__ void dotProductGPU(float *a, float *b, float *c, int n)
 		__syncthreads();
 	}
 	
-	
-	if (cacheIndex == 0)
+	if (threadIdx.x == 0)
 	{
 		c[blockIdx.x] = cache[0]; 
+		__syncthreads();
+		atomicAdd(&c[0],c[blockIdx.x]);
+		
 	}
 	
 }
@@ -192,6 +223,7 @@ void CleanUp()
 
 int main()
 {
+	
 	timeval start, end;
 	long timeCPU, timeGPU;
 	//float localC_CPU, localC_GPU;
@@ -212,32 +244,32 @@ int main()
 	gettimeofday(&end, NULL);
 	timeCPU = elaspedTime(start, end);
 	
-	
-	
 	// Adding on the GPU
 	gettimeofday(&start, NULL);
 	
 	// Copy Memory from CPU to GPU		
-	cudaMemcpyAsync(A_GPU, A_CPU, N*sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpyAsync(A_GPU, A_CPU, NwithZeros*sizeof(float), cudaMemcpyHostToDevice);
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMemcpyAsync(B_GPU, B_CPU, N*sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpyAsync(B_GPU, B_CPU, NwithZeros*sizeof(float), cudaMemcpyHostToDevice);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
-	dotProductGPU<<<GridSize,BlockSize>>>(A_GPU, B_GPU, C_GPU, N);
+	dotProductGPU<<<GridSize,BlockSize>>>(A_GPU, B_GPU, C_GPU, N, NwithZeros);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	// Copy Memory from GPU to CPU	
-	cudaMemcpyAsync(C_CPU, C_GPU, GridSize.x*sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpyAsync(C_CPU, C_GPU, NwithZeros*sizeof(float), cudaMemcpyDeviceToHost);
 	cudaErrorCheck(__FILE__, __LINE__);
-	for(int i = 0; i < GridSize.x; i++)
-	{
-		DotGPU += C_CPU[i];
-	}
 	
-	printf("DotCPU: %f\nDotGPU: %f",DotCPU,DotGPU);
-	// Making sure the GPU and CPU wiat until each other are at the same place.
+	// Making sure the GPU and CPU wait until each other are at the same place.
 	cudaDeviceSynchronize();
 	cudaErrorCheck(__FILE__, __LINE__);
+	
+	DotGPU = C_CPU[0];
+	printf("DotCPU: %f\nDotGPU: %f",DotCPU,DotGPU);
+	/*for(int i = 0; i < N; i += BlockSize.x)
+	{
+		DotGPU += C_CPU[i]; // C_GPU was copied into C_CPU. 
+	}*/
 
 	gettimeofday(&end, NULL);
 	timeGPU = elaspedTime(start, end);
