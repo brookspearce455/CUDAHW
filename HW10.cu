@@ -1,4 +1,5 @@
 
+
 // Name: Brooks Pearce
 // Robust Vector Dot product 
 // nvcc HW10.cu -o temp
@@ -52,11 +53,12 @@ void cudaErrorCheck(const char *, int);
 void setUpDevices();
 void allocateMemory();
 void innitialize();
-void dotProductCPU(float*, float*, int);
+void dotProductCPU(float*, float*, int, int);
 __global__ void dotProductGPU(float*, float*, float*, int, int);
 bool  check(float, float, float);
 long elaspedTime(struct timeval, struct timeval);
 void cleanUp();
+void selectDevice();
 
 // This check to see if an error happened in your CUDA code. It tell you what it thinks went wrong,
 // and what file and line it occured on.
@@ -101,6 +103,10 @@ void allocateMemory()
 	cudaErrorCheck(__FILE__, __LINE__);
 	cudaMalloc(&C_GPU,NwithZeros*sizeof(float));
 	cudaErrorCheck(__FILE__, __LINE__);
+	
+	cudaMemset(A_GPU, 0, NwithZeros);
+	cudaMemset(B_GPU, 0, NwithZeros);
+	cudaMemset(C_GPU, 0, NwithZeros);
 }
 
 // Loading values into the vectors that we will add.
@@ -119,13 +125,16 @@ void innitialize()
 }
 
 // Adding vectors a and b on the CPU then stores result in vector c.
-void dotProductCPU(float *a, float *b, float *C_CPU, int n)
+void dotProductCPU(float *a, float *b, float *C_CPU, int n, int NwithZeros)
 {
 	for(int id = 0; id < n; id++)
 	{ 
 		C_CPU[id] = a[id] * b[id];
 	}
-	
+	/*for(int id = n; id < NwithZeros; id++)
+	{
+		C_CPU[id] = 0;
+	}*/
 	for(int id = 1; id < n; id++)
 	{ 
 		C_CPU[0] += C_CPU[id];
@@ -140,15 +149,14 @@ __shared__ float cache[BLOCK_SIZE];
 	int id = threadIdx.x + blockDim.x * blockIdx.x;
 	int cacheIndex = threadIdx.x;
 	int NwithZeros = blockDim.x * gridDim.x;
-	if (int i = 0; i < NwithZeros; i++)
-	{
-		c[i] = 0;
-	}
+	
+	cache[threadIdx.x] = 0; // zeroing out the cache for every block
+	__syncthreads();
 
-	if (id < n)
-	{
+	//if (id < n)
+	//{
 		cache[cacheIndex] = a[id] * b[id];
-	}
+	//}
         __syncthreads();
 	
 	int fold = blockDim.x/2;
@@ -166,7 +174,8 @@ __shared__ float cache[BLOCK_SIZE];
 	{
 		c[blockIdx.x] = cache[0]; 
 		__syncthreads();
-		atomicAdd(&c[0],c[blockIdx.x]);
+		//atomicAdd(&c[0],c[blockIdx.x]);
+		atomicAdd(&c[0], cache[0]);
 	}
 }
 
@@ -175,7 +184,7 @@ bool check(float cpuAnswer, float gpuAnswer, float tolerence)
 {
 	double percentError;
 	
-	percentError = abs((gpuAnswer - cpuAnswer)/(cpuAnswer))*100.0;
+	percentError = absf((gpuAnswer - cpuAnswer)/(cpuAnswer))*100.0;
 	printf("\n\n percent error = %lf\n", percentError);
 	
 	if(percentError < Tolerance) 
@@ -217,6 +226,13 @@ void CleanUp()
 	cudaErrorCheck(__FILE__, __LINE__);
 }
 
+void selectDevice()
+{
+	int count;
+	cudaDeviceProp prop;
+	count = cudaGetDeviceCount();
+}
+
 int main()
 {
 	timeval start, end;
@@ -234,7 +250,7 @@ int main()
 	
 	// Adding on the CPU
 	gettimeofday(&start, NULL);
-	dotProductCPU(A_CPU, B_CPU, C_CPU, N);
+	dotProductCPU(A_CPU, B_CPU, C_CPU, N, NwithZeros);
 	DotCPU = C_CPU[0];
 	gettimeofday(&end, NULL);
 	timeCPU = elaspedTime(start, end);
@@ -248,14 +264,14 @@ int main()
 	cudaMemcpyAsync(B_GPU, B_CPU, NwithZeros*sizeof(float), cudaMemcpyHostToDevice);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
-	dotProductGPU<<<GridSize,BlockSize>>>(A_GPU, B_GPU, C_GPU, N, BLOCK_SIZE, NwithZeros);
+	dotProductGPU<<<GridSize,BlockSize>>>(A_GPU, B_GPU, C_GPU, N, BLOCK_SIZE);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	// Copy Memory from GPU to CPU	
-	cudaMemcpyAsync(C_CPU, C_GPU, NwithZeros*sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpyAsync(C_CPU, C_GPU, sizeof(float), cudaMemcpyDeviceToHost);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
-	// Making sure the GPU and CPU wiat until each other are at the same place.
+	// Making sure the GPU and CPU wait until each other are at the same place.
 	cudaDeviceSynchronize();
 	cudaErrorCheck(__FILE__, __LINE__);
 	
