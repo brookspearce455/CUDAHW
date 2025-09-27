@@ -36,7 +36,7 @@
 #include <stdio.h>
 
 // Defines
-#define N 100000 // Length of the vector
+#define N 1000000 // Length of the vector
 #define BLOCK_SIZE 512 // Threads in a block
 
 // Global variables
@@ -46,15 +46,15 @@ float DotCPU, DotGPU;
 dim3 BlockSize; //This variable will hold the Dimensions of your blocks
 dim3 GridSize; //This variable will hold the Dimensions of your grid
 float Tolerance = 0.01;
-int NwithZeros;
+int NwithZeros; //This variable will hold the length of the largest index that the grid/block system can reach
 
 // Function prototypes
 void cudaErrorCheck(const char *, int);
 void setUpDevices();
 void allocateMemory();
 void innitialize();
-void dotProductCPU(float*, float*, int, int);
-__global__ void dotProductGPU(float*, float*, float*, int, int);
+void dotProductCPU(float*, float*, int);
+__global__ void dotProductGPU(float*, float*, float*, int);
 bool  check(float, float, float);
 long elaspedTime(struct timeval, struct timeval);
 void cleanUp();
@@ -92,9 +92,9 @@ void setUpDevices()
 void allocateMemory()
 {	
 	// Host "CPU" memory.				
-	A_CPU = (float*)malloc(NwithZeros*sizeof(float));
-	B_CPU = (float*)malloc(NwithZeros*sizeof(float));
-	C_CPU = (float*)malloc(NwithZeros*sizeof(float));
+	A_CPU = (float*)malloc(N*sizeof(float));
+	B_CPU = (float*)malloc(N*sizeof(float));
+	C_CPU = (float*)malloc(N*sizeof(float));
 	
 	// Device "GPU" Memory
 	cudaMalloc(&A_GPU,NwithZeros*sizeof(float));
@@ -104,7 +104,8 @@ void allocateMemory()
 	cudaMalloc(&C_GPU,NwithZeros*sizeof(float));
 	cudaErrorCheck(__FILE__, __LINE__);
 	
-	cudaMemset(A_GPU, 0, NwithZeros);
+	// Padding with zeros 
+	cudaMemset(A_GPU, 0, NwithZeros); 
 	cudaMemset(B_GPU, 0, NwithZeros);
 	cudaMemset(C_GPU, 0, NwithZeros);
 }
@@ -117,24 +118,15 @@ void innitialize()
 		A_CPU[i] = (float)i;	
 		B_CPU[i] = (float)(3*i);
 	}
-	for(int i = N; i < NwithZeros; i++)
-	{
-		A_CPU[i] = 0;
-		B_CPU[i] = 0;
-	}
 }
 
 // Adding vectors a and b on the CPU then stores result in vector c.
-void dotProductCPU(float *a, float *b, float *C_CPU, int n, int NwithZeros)
+void dotProductCPU(float *a, float *b, float *C_CPU, int n)
 {
 	for(int id = 0; id < n; id++)
 	{ 
 		C_CPU[id] = a[id] * b[id];
 	}
-	/*for(int id = n; id < NwithZeros; id++)
-	{
-		C_CPU[id] = 0;
-	}*/
 	for(int id = 1; id < n; id++)
 	{ 
 		C_CPU[0] += C_CPU[id];
@@ -143,20 +135,18 @@ void dotProductCPU(float *a, float *b, float *C_CPU, int n, int NwithZeros)
 
 // This is the kernel. It is the function that will run on the GPU.
 // It adds vectors a and b on the GPU then stores result in vector c.
-__global__ void dotProductGPU(float *a, float *b, float *c, int n, int BLOCK_SIZE)
+__global__ void dotProductGPU(float *a, float *b, float *c, int n)
 {
 __shared__ float cache[BLOCK_SIZE];
 	int id = threadIdx.x + blockDim.x * blockIdx.x;
 	int cacheIndex = threadIdx.x;
-	int NwithZeros = blockDim.x * gridDim.x;
 	
-	cache[threadIdx.x] = 0; // zeroing out the cache for every block
+	 // Zeroing out the cache for every block just in case
+	cache[threadIdx.x] = 0;
 	__syncthreads();
-
-	//if (id < n)
-	//{
-		cache[cacheIndex] = a[id] * b[id];
-	//}
+	
+	// No need for an if statement because vectors were already padded with zeros
+	cache[cacheIndex] = a[id] * b[id];
         __syncthreads();
 	
 	int fold = blockDim.x/2;
@@ -169,12 +159,11 @@ __shared__ float cache[BLOCK_SIZE];
 		fold /=2;
 		__syncthreads();
 	}
-
+	
+	// Atomic add adds the first element in the cache for each block to the first element in c
 	if (threadIdx.x == 0)
 	{
-		c[blockIdx.x] = cache[0]; 
 		__syncthreads();
-		//atomicAdd(&c[0],c[blockIdx.x]);
 		atomicAdd(&c[0], cache[0]);
 	}
 }
@@ -184,7 +173,7 @@ bool check(float cpuAnswer, float gpuAnswer, float tolerence)
 {
 	double percentError;
 	
-	percentError = absf((gpuAnswer - cpuAnswer)/(cpuAnswer))*100.0;
+	percentError = fabs((gpuAnswer - cpuAnswer)/(cpuAnswer))*100.0;
 	printf("\n\n percent error = %lf\n", percentError);
 	
 	if(percentError < Tolerance) 
@@ -226,11 +215,39 @@ void CleanUp()
 	cudaErrorCheck(__FILE__, __LINE__);
 }
 
+// Uses the device prop to iterate through the devices and chooses the one with the highest compute capability
 void selectDevice()
 {
 	int count;
+	int bestCompute = 0;
+	int bestGPU;
+	int gridSize = (N-1)/BLOCK_SIZE+1; // calculates number of blocks because setUpDevices(); hasn't been called yet
+	
 	cudaDeviceProp prop;
-	count = cudaGetDeviceCount();
+	cudaGetDeviceCount(&count);
+	cudaErrorCheck(__FILE__, __LINE__);
+	
+	for (int i = 0; i < count; i++)
+	{
+		cudaGetDeviceProperties(&prop,i);
+		cudaErrorCheck(__FILE__, __LINE__);
+		printf(" ---General Information for device %d ---\n", i);
+		printf("Name: %s\n", prop.name);
+		printf("Compute capability: %d.%d\n\n", prop.major, prop.minor);
+		if (prop.major > bestCompute)
+		{
+			bestCompute = prop.major;
+			bestGPU = i;
+		}
+	}
+	printf("Chosen GPU is: device %d\n\n",bestGPU);
+	cudaSetDevice(bestGPU);
+	if (prop.maxThreadsPerBlock < BLOCK_SIZE || prop.maxGridSize[0] < gridSize)
+	{
+		printf("Thread count or block count didn't meet code expectations. Go get a new GPU!\n");
+		exit(0);
+	}
+	
 }
 
 int main()
@@ -239,8 +256,12 @@ int main()
 	long timeCPU, timeGPU;
 	//float localC_CPU, localC_GPU;
 	
+	// Selecting the GPU
+	selectDevice();
+	
 	// Setting up the GPU
 	setUpDevices();
+	
 	
 	// Allocating the memory you will need.
 	allocateMemory();
@@ -250,7 +271,7 @@ int main()
 	
 	// Adding on the CPU
 	gettimeofday(&start, NULL);
-	dotProductCPU(A_CPU, B_CPU, C_CPU, N, NwithZeros);
+	dotProductCPU(A_CPU, B_CPU, C_CPU, N);
 	DotCPU = C_CPU[0];
 	gettimeofday(&end, NULL);
 	timeCPU = elaspedTime(start, end);
@@ -259,16 +280,16 @@ int main()
 	gettimeofday(&start, NULL);
 	
 	// Copy Memory from CPU to GPU		
-	cudaMemcpyAsync(A_GPU, A_CPU, NwithZeros*sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpyAsync(A_GPU, A_CPU, N*sizeof(float), cudaMemcpyHostToDevice);
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMemcpyAsync(B_GPU, B_CPU, NwithZeros*sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpyAsync(B_GPU, B_CPU, N*sizeof(float), cudaMemcpyHostToDevice);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
-	dotProductGPU<<<GridSize,BlockSize>>>(A_GPU, B_GPU, C_GPU, N, BLOCK_SIZE);
+	dotProductGPU<<<GridSize,BlockSize>>>(A_GPU, B_GPU, C_GPU, N);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	// Copy Memory from GPU to CPU	
-	cudaMemcpyAsync(C_CPU, C_GPU, sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpyAsync(C_CPU, C_GPU, sizeof(float), cudaMemcpyDeviceToHost); // only copying over the first element in the GPU vector
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	// Making sure the GPU and CPU wait until each other are at the same place.
@@ -276,6 +297,7 @@ int main()
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	DotGPU = C_CPU[0];
+	printf("DotCPU: %f\nDotGPU: %f\n", DotCPU, DotGPU);
 
 	gettimeofday(&end, NULL);
 	timeGPU = elaspedTime(start, end);
@@ -300,7 +322,6 @@ int main()
 	
 	return(0);
 }
-
 
 
 
