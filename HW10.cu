@@ -111,7 +111,7 @@ void innitialize()
 		A_CPU[i] = (float)i;	
 		B_CPU[i] = (float)(3*i);
 	}
-	for(i = N; i < NwithZeros; i++)
+	for(int i = N; i < NwithZeros; i++)
 	{
 		A_CPU[i] = 0;
 		B_CPU[i] = 0;
@@ -283,6 +283,7 @@ int main()
 	
 	return(0);
 }
+
 
 
 
