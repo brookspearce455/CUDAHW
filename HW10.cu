@@ -53,7 +53,7 @@ void setUpDevices();
 void allocateMemory();
 void innitialize();
 void dotProductCPU(float*, float*, int);
-__global__ void dotProductGPU(float*, float*, float*, int);
+__global__ void dotProductGPU(float*, float*, float*, int, int, int);
 bool  check(float, float, float);
 long elaspedTime(struct timeval, struct timeval);
 void cleanUp();
@@ -134,13 +134,17 @@ void dotProductCPU(float *a, float *b, float *C_CPU, int n)
 
 // This is the kernel. It is the function that will run on the GPU.
 // It adds vectors a and b on the GPU then stores result in vector c.
-__global__ void dotProductGPU(float *a, float *b, float *c, int n)
+__global__ void dotProductGPU(float *a, float *b, float *c, int n, BLOCK_SIZE, NwithZeros)
 {
 __shared__ float cache[BLOCK_SIZE];
 	int id = threadIdx.x + blockDim.x * blockIdx.x;
 	int cacheIndex = threadIdx.x;
-	
-	if(id < n)
+	if (int i = 0; i < NwithZeros; i++)
+	{
+		c[i] = 0;
+	}
+
+	if (id < n)
 	{
 		cache[cacheIndex] = a[id] * b[id];
 	}
@@ -243,7 +247,7 @@ int main()
 	cudaMemcpyAsync(B_GPU, B_CPU, NwithZeros*sizeof(float), cudaMemcpyHostToDevice);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
-	dotProductGPU<<<GridSize,BlockSize>>>(A_GPU, B_GPU, C_GPU, N);
+	dotProductGPU<<<GridSize,BlockSize>>>(A_GPU, B_GPU, C_GPU, N, BLOCK_SIZE, NwithZeros);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	// Copy Memory from GPU to CPU	
@@ -255,10 +259,6 @@ int main()
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	DotGPU = C_PU[0];
-	/*for(int i = 0; i < N; i += BlockSize.x)
-	{
-		DotGPU += C_CPU[i]; // C_GPU was copied into C_CPU. 
-	}*/
 
 	gettimeofday(&end, NULL);
 	timeGPU = elaspedTime(start, end);
@@ -283,6 +283,7 @@ int main()
 	
 	return(0);
 }
+
 
 
 
