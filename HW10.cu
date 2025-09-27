@@ -119,7 +119,7 @@ void innitialize()
 }
 
 // Adding vectors a and b on the CPU then stores result in vector c.
-void dotProductCPU(float *a, float *b, float *C_CPU, int n, int NwithZeros)
+void dotProductCPU(float *a, float *b, float *C_CPU, int n)
 {
 	for(int id = 0; id < n; id++)
 	{ 
@@ -283,5 +283,6 @@ int main()
 	
 	return(0);
 }
+
 
 
