@@ -53,7 +53,7 @@ void setUpDevices();
 void allocateMemory();
 void innitialize();
 void dotProductCPU(float*, float*, int);
-__global__ void dotProductGPU(float*, float*, float*, int, int, int);
+__global__ void dotProductGPU(float*, float*, float*, int, int);
 bool  check(float, float, float);
 long elaspedTime(struct timeval, struct timeval);
 void cleanUp();
@@ -134,11 +134,12 @@ void dotProductCPU(float *a, float *b, float *C_CPU, int n)
 
 // This is the kernel. It is the function that will run on the GPU.
 // It adds vectors a and b on the GPU then stores result in vector c.
-__global__ void dotProductGPU(float *a, float *b, float *c, int n, BLOCK_SIZE, NwithZeros)
+__global__ void dotProductGPU(float *a, float *b, float *c, int n, int BLOCK_SIZE)
 {
 __shared__ float cache[BLOCK_SIZE];
 	int id = threadIdx.x + blockDim.x * blockIdx.x;
 	int cacheIndex = threadIdx.x;
+	int NwithZeros = blockDim.x * gridDim.x;
 	if (int i = 0; i < NwithZeros; i++)
 	{
 		c[i] = 0;
@@ -283,6 +284,7 @@ int main()
 	
 	return(0);
 }
+
 
 
 
