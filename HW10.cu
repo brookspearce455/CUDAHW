@@ -136,7 +136,7 @@ void dotProductCPU(float *a, float *b, float *C_CPU, int n, int NwithZeros)
 // It adds vectors a and b on the GPU then stores result in vector c.
 __global__ void dotProductGPU(float *a, float *b, float *c, int n)
 {
-__shared__ float cache[blockDim.x];
+__shared__ float cache[BLOCK_SIZE];
 	int id = threadIdx.x + blockDim.x * blockIdx.x;
 	int cacheIndex = threadIdx.x;
 	
@@ -156,9 +156,13 @@ __shared__ float cache[blockDim.x];
 		fold /=2;
 		__syncthreads();
 	}
-	
+
+	if (threadIdx.x == 0)
+	{
 		c[blockIdx.x] = cache[0]; 
-		atomicAdd(c[0],c[blockIdx.x]);
+		__syncthreads();
+		atomicAdd(&c[0],c[blockIdx.x]);
+	}
 }
 
 // Checking to see if anything went wrong in the vector addition.
@@ -279,3 +283,4 @@ int main()
 	
 	return(0);
 }
+
