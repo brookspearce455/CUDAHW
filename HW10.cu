@@ -36,7 +36,7 @@
 
 // Defines
 #define N 100000 // Length of the vector
-#define BLOCK_SIZE 516 // Threads in a block
+#define BLOCK_SIZE 512 // Threads in a block
 
 // Global variables
 float *A_CPU, *B_CPU, *C_CPU; //CPU pointers
@@ -283,6 +283,7 @@ int main()
 	
 	return(0);
 }
+
 
 
 
