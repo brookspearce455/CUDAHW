@@ -258,7 +258,7 @@ int main()
 	cudaDeviceSynchronize();
 	cudaErrorCheck(__FILE__, __LINE__);
 	
-	DotGPU = C_PU[0];
+	DotGPU = C_CPU[0];
 
 	gettimeofday(&end, NULL);
 	timeGPU = elaspedTime(start, end);
@@ -283,6 +283,7 @@ int main()
 	
 	return(0);
 }
+
 
 
 
