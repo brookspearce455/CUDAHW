@@ -95,11 +95,11 @@ void allocateMemory()
 	C_CPU = (float*)malloc(NwithZeros*sizeof(float));
 	
 	// Device "GPU" Memory
-	cudaMalloc(&A_GPU,N*sizeof(float));
+	cudaMalloc(&A_GPU,NwithZeros*sizeof(float));
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&B_GPU,N*sizeof(float));
+	cudaMalloc(&B_GPU,NwithZeros*sizeof(float));
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&C_GPU,N*sizeof(float));
+	cudaMalloc(&C_GPU,NwithZeros*sizeof(float));
 	cudaErrorCheck(__FILE__, __LINE__);
 }
 
@@ -283,4 +283,5 @@ int main()
 	
 	return(0);
 }
+
 
