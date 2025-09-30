@@ -81,11 +81,11 @@ void setUpDevices()
 	BlockSize.y = 1;
 	BlockSize.z = 1;
 	
-	GridSize.x = (N - 1)/BlockSize.x + 1; // This gives us the correct number of blocks.
+	GridSize.x = 1000; // This gives us the correct number of blocks.
 	GridSize.y = 1;
 	GridSize.z = 1;
 	
-	NwithZeros = BlockSize.x * GridSize.x;
+	//NwithZeros = BlockSize.x * GridSize.x;
 }
 
 // Allocating the memory we will be using.
@@ -97,17 +97,17 @@ void allocateMemory()
 	C_CPU = (float*)malloc(N*sizeof(float));
 	
 	// Device "GPU" Memory
-	cudaMalloc(&A_GPU,NwithZeros*sizeof(float));
+	cudaMalloc(&A_GPU,N*sizeof(float));
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&B_GPU,NwithZeros*sizeof(float));
+	cudaMalloc(&B_GPU,N*sizeof(float));
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&C_GPU,NwithZeros*sizeof(float));
+	cudaMalloc(&C_GPU,N*sizeof(float));
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	// Padding with zeros 
-	cudaMemset(A_GPU, 0, NwithZeros); 
-	cudaMemset(B_GPU, 0, NwithZeros);
-	cudaMemset(C_GPU, 0, NwithZeros);
+	cudaMemset(A_GPU, 0, N); 
+	cudaMemset(B_GPU, 0, N);
+	cudaMemset(C_GPU, 0, N);
 }
 
 // Loading values into the vectors that we will add.
@@ -140,14 +140,22 @@ __global__ void dotProductGPU(float *a, float *b, float *c, int n)
 __shared__ float cache[BLOCK_SIZE];
 	int id = threadIdx.x + blockDim.x * blockIdx.x;
 	int cacheIndex = threadIdx.x;
+	float sum = 0;
 	
 	 // Zeroing out the cache for every block just in case
 	cache[threadIdx.x] = 0;
 	__syncthreads();
 	
+	for (int i = 0; i < n; i += blockDim.x * gridDim.x)
+	{
+		sum += a[i] * b[i];
+		cache[cacheIndex] = sum;
+	}
+	__syncthreads();	
+	
 	// No need for an if statement because vectors were already padded with zeros
-	cache[cacheIndex] = a[id] * b[id];
-        __syncthreads();
+	//cache[cacheIndex] = a[id] * b[id];
+    //    __syncthreads();
 	
 	int fold = blockDim.x/2;
 	while (fold > 0) 
