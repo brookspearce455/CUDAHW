@@ -78,9 +78,9 @@ void allocateMemory()
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	// Padding with zeros 
-	cudaMemset(A_GPU, 0, N); 
-	cudaMemset(B_GPU, 0, N);
-	cudaMemset(C_GPU, 0, N);
+	cudaMemset(A_GPU, 0, N*sizeof(float)); 
+	cudaMemset(B_GPU, 0, N*sizeof(float));
+	cudaMemset(C_GPU, 0, N*sizeof(float));
 }
 
 // Loading values into the vectors that we will add.
@@ -325,6 +325,7 @@ int main()
 	
 	return(0);
 }
+
 
 
 
