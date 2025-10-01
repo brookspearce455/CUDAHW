@@ -9,8 +9,8 @@
 #include <stdio.h>
 
 // Defines
-#define N 5000000 // Length of the vector
-#define BLOCK_SIZE 512 // Threads in a block
+#define N 1000000 // Length of the vector
+#define BLOCK_SIZE 1024 // Threads in a block
 
 // Global variables
 float *A_CPU, *B_CPU, *C_CPU; //CPU pointers
@@ -18,8 +18,9 @@ float *A_GPU, *B_GPU, *C_GPU; //GPU pointers
 float DotCPU, DotGPU;
 dim3 BlockSize; //This variable will hold the Dimensions of your blocks
 dim3 GridSize; //This variable will hold the Dimensions of your grid
-float Tolerance = 0.2;
-int NwithZeros; //This variable will hold the length of the largest index that the grid/block system can reach
+float Tolerance = 0.01;
+
+
 
 // Function prototypes
 void cudaErrorCheck(const char *, int);
@@ -42,7 +43,7 @@ void cudaErrorCheck(const char *file, int line)
 
 	if(error != cudaSuccess)
 	{
-		printf("\n CUDA ERROR: message = %s, File = %s, Line = %d\n", cudaGetErrorString(error), file, line);
+		printf("\n CUDA ERROR: message = %s, File = %s, Line = %d\n", 			 cudaGetErrorString(error), file, line);
 		exit(0);
 	}
 }
@@ -54,11 +55,10 @@ void setUpDevices()
 	BlockSize.y = 1;
 	BlockSize.z = 1;
 	
-	GridSize.x = 1000; // This gives us the correct number of blocks.
+	GridSize.x = 10000; // This gives us the correct number of blocks.
 	GridSize.y = 1;
 	GridSize.z = 1;
 	
-	//NwithZeros = BlockSize.x * GridSize.x;
 }
 
 // Allocating the memory we will be using.
@@ -153,11 +153,14 @@ __shared__ float cache[BLOCK_SIZE];
 
 // Checking to see if anything went wrong in the vector addition.
 bool check(float cpuAnswer, float gpuAnswer, float tolerence)
-{
+{	
+	
 	double percentError;
 	
 	percentError = fabs((gpuAnswer - cpuAnswer)/(cpuAnswer))*100.0;
 	printf("\n\n percent error = %lf\n", percentError);
+	printf("Percentage of VRAM used: %lf\n",percentUsed);
+	
 	
 	if(percentError < Tolerance) 
 	{
@@ -234,6 +237,20 @@ void selectDevice()
 	
 }
 
+void percentVramUsed ()
+{
+	size_t freeMem;
+	size_t totalMem;
+	size_t maxN; 
+	int used = N;
+	
+	cudaMemGetInfo(&freeMem,&totalMem);
+	maxN = freeMem / 12;
+	printf("freeMem: %lu\n",maxN);
+	percentUsed = used * 100 / maxN;
+	printf("used: %d\n",used);
+}
+
 int main()
 {
 	timeval start, end;
@@ -246,6 +263,8 @@ int main()
 	// Setting up the GPU
 	setUpDevices();
 	
+	// Find out how much Vram is left 
+	percentVramUsed();
 	
 	// Allocating the memory you will need.
 	allocateMemory();
