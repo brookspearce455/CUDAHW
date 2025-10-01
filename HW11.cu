@@ -7,9 +7,10 @@
 // Include files
 #include <sys/time.h>
 #include <stdio.h>
+#include <cuda_runtime.h>
 
 // Defines
-#define N 1000000 // Length of the vector
+#define N 2000000 // Length of the vector
 #define BLOCK_SIZE 1024 // Threads in a block
 
 // Global variables
@@ -28,7 +29,7 @@ void setUpDevices();
 void allocateMemory();
 void innitialize();
 void dotProductCPU(float*, float*, int);
-__global__ void dotProductGPU(float*, float*, float*, int);
+__global__ void dotProductGPU(float*, float*, double*, int);
 bool  check(float, float, float);
 long elaspedTime(struct timeval, struct timeval);
 void cleanUp();
@@ -43,7 +44,7 @@ void cudaErrorCheck(const char *file, int line)
 
 	if(error != cudaSuccess)
 	{
-		printf("\n CUDA ERROR: message = %s, File = %s, Line = %d\n", 			 cudaGetErrorString(error), file, line);
+		printf("\n CUDA ERROR: message = %s, File = %s, Line = %d\n", cudaGetErrorString(error), file, line);
 		exit(0);
 	}
 }
@@ -55,6 +56,7 @@ void setUpDevices()
 	BlockSize.y = 1;
 	BlockSize.z = 1;
 	
+	// This code can stride the length of the grid so block count doesn't become a bottleneck
 	GridSize.x = 10000; // This gives us the correct number of blocks.
 	GridSize.y = 1;
 	GridSize.z = 1;
@@ -74,13 +76,13 @@ void allocateMemory()
 	cudaErrorCheck(__FILE__, __LINE__);
 	cudaMalloc(&B_GPU,N*sizeof(float));
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&C_GPU,N*sizeof(float));
+	cudaMalloc(&C_GPU,sizeof(float));
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	// Padding with zeros 
 	cudaMemset(A_GPU, 0, N*sizeof(float)); 
 	cudaMemset(B_GPU, 0, N*sizeof(float));
-	cudaMemset(C_GPU, 0, N*sizeof(float));
+	cudaMemset(C_GPU, 0, sizeof(float));
 }
 
 // Loading values into the vectors that we will add.
@@ -128,10 +130,6 @@ __shared__ float cache[BLOCK_SIZE];
 	}
 	__syncthreads();	
 	
-	// No need for an if statement because vectors were already padded with zeros
-	//cache[cacheIndex] = a[id] * b[id];
-    //    __syncthreads();
-	
 	int fold = blockDim.x/2;
 	while (fold > 0) 
 	{
@@ -146,9 +144,12 @@ __shared__ float cache[BLOCK_SIZE];
 	// Atomic add adds the first element in the cache for each block to the first element in c
 	if (threadIdx.x == 0)
 	{
+		
 		__syncthreads();
 		atomicAdd(&c[0], cache[0]);
+		
 	}
+	
 }
 
 // Checking to see if anything went wrong in the vector addition.
@@ -159,7 +160,6 @@ bool check(float cpuAnswer, float gpuAnswer, float tolerence)
 	
 	percentError = fabs((gpuAnswer - cpuAnswer)/(cpuAnswer))*100.0;
 	printf("\n\n percent error = %lf\n", percentError);
-	printf("Percentage of VRAM used: %lf\n",percentUsed);
 	
 	
 	if(percentError < Tolerance) 
@@ -237,22 +237,22 @@ void selectDevice()
 	
 }
 
-void percentVramUsed ()
+double percentVramUsed ()
 {
+	double percentUsed;
 	size_t freeMem;
 	size_t totalMem;
-	size_t maxN; 
-	int used = N;
 	
 	cudaMemGetInfo(&freeMem,&totalMem);
-	maxN = freeMem / 12;
-	printf("freeMem: %lu\n",maxN);
-	percentUsed = used * 100 / maxN;
-	printf("used: %d\n",used);
+	
+	
+	percentUsed = 100 - (freeMem * 100 / totalMem);
+	return(percentUsed);
 }
 
 int main()
-{
+{	
+	double percentUsed;
 	timeval start, end;
 	long timeCPU, timeGPU;
 	//float localC_CPU, localC_GPU;
@@ -262,9 +262,6 @@ int main()
 	
 	// Setting up the GPU
 	setUpDevices();
-	
-	// Find out how much Vram is left 
-	percentVramUsed();
 	
 	// Allocating the memory you will need.
 	allocateMemory();
@@ -291,6 +288,7 @@ int main()
 	dotProductGPU<<<GridSize,BlockSize>>>(A_GPU, B_GPU, C_GPU, N);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
+	
 	// Copy Memory from GPU to CPU	
 	cudaMemcpyAsync(C_CPU, C_GPU, sizeof(float), cudaMemcpyDeviceToHost); // only copying over the first element in the GPU vector
 	cudaErrorCheck(__FILE__, __LINE__);
@@ -305,6 +303,10 @@ int main()
 	gettimeofday(&end, NULL);
 	timeGPU = elaspedTime(start, end);
 	
+	// Compares free and total memory on the GPU
+	percentUsed = percentVramUsed();
+	printf("\n Percentage of VRAM used: %lf\n",percentUsed);
+	
 	// Checking to see if all went correctly.
 	if(check(DotCPU, DotGPU, Tolerance) == false)
 	{
@@ -312,6 +314,7 @@ int main()
 	}
 	else
 	{
+		
 		printf("\n\n You did a dot product correctly on the GPU");
 		printf("\n The time it took on the CPU was %ld microseconds", timeCPU);
 		printf("\n The time it took on the GPU was %ld microseconds", timeGPU);
@@ -325,7 +328,6 @@ int main()
 	
 	return(0);
 }
-
 
 
 
