@@ -175,8 +175,7 @@ void fillHistogramCPU()
 //This is the kernel. It is the function that will run on the GPU.
 __global__ void fillHistogramGPU(float *randomNumbers, int *hist)
 {
-	__shared__ float bins[NUMBER_OF_BINS];
-	int id = threadIdx.x + blockDim.x * blockIdx.x;
+	__shared__ int bins[NUMBER_OF_BINS];
 	int binId = threadIdx.x;
 	float breakPoint;
 	int k, done;
@@ -184,37 +183,32 @@ __global__ void fillHistogramGPU(float *randomNumbers, int *hist)
 	// Zeroing out the shared memory before use
 	
 	if (threadIdx.x < 10) bins[threadIdx.x] = 0;
-    __syncthreads();
-	
-	if(id < MAX_RANDOM_NUMBER)
+        __syncthreads();
+ 	
+	for(int id=threadIdx.x + blockDim.x * blockIdx.x; id < NUMBER_OF_RANDOM_NUMBERS; id +=blockDim.x*gridDim.x)
 	{
 	breakPoint = stepSize;
 	k = 0;
 	done =0;
 		
-		while(done == 0)
+		while(done == 0&&k<NUMBER_OF_BINS)
 		{
 			if(randomNumbers[id] < breakPoint)
 			{
-				atomicAdd(bins[k],1];
+				atomicAdd(&bins[k],1);
 				done = 1;
-				__syncthread();
-			}
-			
-			if(NUMBER_OF_BINS < k)
-			{
-				printf("\n k is too big\n");
-				exit(0);
+				
 			}
 			k++;
 			breakPoint += stepSize;
-			__syncthread();
+			
 		}
+		
 	}
-	if(id < NUMBER_OF_BINS)
+	if(binId < NUMBER_OF_BINS)
 	{
-		__syncthread();
-		atomicAdd(&hist[id],bins[id]);
+		__syncthreads();
+		atomicAdd(&hist[binId],bins[binId]);
 	}
 }
 
@@ -253,6 +247,7 @@ int main()
 	fillHistogramGPU<<<GridSize,BlockSize>>>(RandomNumbersGPU, HistogramGPU);
 	cudaErrorCheck(__FILE__, __LINE__);
 	//Copy Memory from GPU to CPU	
+	
 	cudaMemcpyAsync(HistogramCPUTemp, HistogramGPU, NUMBER_OF_BINS*sizeof(int), cudaMemcpyDeviceToHost);
 	cudaErrorCheck(__FILE__, __LINE__);
 	gettimeofday(&end, NULL);
@@ -262,8 +257,9 @@ int main()
 	//Check
 	for(int i = 0; i < NUMBER_OF_BINS; i++)
 	{
-		printf("\n Deference in histogram bins %d is %d.", i, abs(HistogramCPUTemp[i] - HistogramCPU[i]));
+		printf("\n Difference in histogram bins %d is %d.", i, abs(HistogramCPUTemp[i] - HistogramCPU[i]));
 	}
+	
 	
 	//You're done so cleanup your mess.
 	CleanUp();	
