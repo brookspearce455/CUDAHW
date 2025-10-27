@@ -1,6 +1,6 @@
 // Name: Brooks Pearce
 // Setting up a stream
-// nvcc 14Streams.cu -o temp
+// nvcc N_Streams.cu -o temp
 
 /*
  What to do:
