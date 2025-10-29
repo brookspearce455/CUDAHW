@@ -196,6 +196,7 @@ int main()
 	
 	for(int i = 0; i < ENTIRE_DATA_SET; i += DATA_CHUNKS*2)
 	{
+		// Stream0 will use data chunks 0,2,4,6,...,20
 		cudaMemcpyAsync(A0_GPU,A_CPU+i, DATA_CHUNKS*sizeof(float),cudaMemcpyHostToDevice,Stream0);
 		cudaErrorCheck(__FILE__, __LINE__);
 		cudaMemcpyAsync(B0_GPU,B_CPU+i, DATA_CHUNKS*sizeof(float),cudaMemcpyHostToDevice,Stream0);
@@ -204,7 +205,9 @@ int main()
 		trigAdditionGPU<<<GridSize,BlockSize,0,Stream0>>>(A0_GPU,B0_GPU,C0_GPU,DATA_CHUNKS);
 		cudaMemcpyAsync(C_CPU+i,C0_GPU, DATA_CHUNKS*sizeof(float),cudaMemcpyDeviceToHost,Stream0);
 		cudaErrorCheck(__FILE__, __LINE__);
-		
+
+		// Stream1 is wrapped in an if statement to make sure it doesn't go out of bounds
+		// Stream1 will handle chunks 1,3,5,7,...,19
 		if(i<=ENTIRE_DATA_SET-DATA_CHUNKS){
 		cudaMemcpyAsync(A1_GPU,A_CPU+DATA_CHUNKS+i, DATA_CHUNKS*sizeof(float),cudaMemcpyHostToDevice,Stream1);
 		cudaErrorCheck(__FILE__, __LINE__);
