@@ -87,16 +87,16 @@ void setUpCudaDevices()
 	BlockSize.z = 1;
 	
 	// We are making enough blocks to do the 20 random walks at once
-	GridSize.x = 2*((NumberOfRandomSteps - 1) / BlockSize + 1); 
+	GridSize.x = 2*((NumberOfRandomSteps - 1) / BLOCK_SIZE + 1); 
 	GridSize.y = ITERATIONS; 
-	GridSize.z = 1
+	GridSize.z = 1;
 }
 __global__ void randomWalk(int *finalX, int *finalY, unsigned int seed)
 {
 	int id = threadIdx.x + blockIdx.x * blockDim.x;
 	int iter = blockIdx.y;
 	
-	for (int i = 0; i < iter; i++)
+	for (int i =  -1; i<iter; i++)
 	{
 		int x = 0;
 		int y = 0;
@@ -104,7 +104,7 @@ __global__ void randomWalk(int *finalX, int *finalY, unsigned int seed)
 		curand_init(seed+iter, id, 0, &rng);
 		
 		unsigned int rx = curand(&rng);
-		unsigned int ry = curand(&rng);
+		
 		
 		if (id < blockDim.x / 2)
 		{
@@ -116,13 +116,13 @@ __global__ void randomWalk(int *finalX, int *finalY, unsigned int seed)
 			{
 				x = -1;
 			}
-			__syncthreads();
+			
 			atomicAdd(&finalX[iter],x);
 		}
-		
+		unsigned int ry = curand(&rng);
 		if (id >= blockDim.x / 2)
 		{
-			if (id % 2 == 0)
+			if (ry % 2 == 0)
 			{
 				y = 1;
 			}
@@ -130,11 +130,10 @@ __global__ void randomWalk(int *finalX, int *finalY, unsigned int seed)
 			{
 				y = -1;
 			}
-			__syncthreads();
-			atomicAdd(&finalY[iter],y)
+			
+			atomicAdd(&finalY[iter],y);
 		}
-		
-	}
+	}	
 	
 }
 
@@ -149,6 +148,7 @@ int main(int argc, char** argv)
 	srand(time(NULL));
 	unsigned int seed = time(NULL);
 	allocateMemory();
+	setUpCudaDevices();
 	printf(" RAND_MAX for this implementation is = %d \n", RAND_MAX);
 	
 	int positionX = 0;
@@ -160,7 +160,7 @@ int main(int argc, char** argv)
 	}
 	randomWalk<<<GridSize,BlockSize>>>(finalX, finalY, seed);
 	cudaDeviceSynchronize();
-	printf("GPU Results:\n\n);
+	printf("GPU Results:\n\n");
 	for (int i = 0; i < ITERATIONS; i++)
 	{
 		printf("Iteration %d: %d, %d\n",i,finalX[i],finalY[i]);
@@ -169,4 +169,3 @@ int main(int argc, char** argv)
 	printf("\n Final position = (%d,%d) \n", positionX, positionY);
 	return 0;
 }
-
