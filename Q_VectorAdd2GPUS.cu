@@ -281,7 +281,7 @@ int main()
 	cudaErrorCheck(__FILE__, __LINE__);
 	cudaMemcpyAsync(B0_GPU, B_CPU, N0*sizeof(float), cudaMemcpyHostToDevice,s0);
 	cudaErrorCheck(__FILE__, __LINE__);
-	addVectorsGPU<<<GridSize0,BlockSize0>>>(A0_GPU, B0_GPU ,C0_GPU, N0);
+	addVectorsGPU<<<GridSize0,BlockSize0,0,s0>>>(A0_GPU, B0_GPU ,C0_GPU, N0);
 	cudaErrorCheck(__FILE__, __LINE__);
 	cudaMemcpyAsync(C_CPU, C0_GPU, N0*sizeof(float), cudaMemcpyDeviceToHost,s0);
 	cudaErrorCheck(__FILE__, __LINE__);
@@ -291,7 +291,7 @@ int main()
 	cudaErrorCheck(__FILE__, __LINE__);
 	cudaMemcpyAsync(B1_GPU, B_CPU+N0, N1*sizeof(float), cudaMemcpyHostToDevice,s1);
 	cudaErrorCheck(__FILE__, __LINE__);
-	addVectorsGPU<<<GridSize1,BlockSize1>>>(A1_GPU, B1_GPU ,C1_GPU, N1);
+	addVectorsGPU<<<GridSize1,BlockSize1,0,s1>>>(A1_GPU, B1_GPU ,C1_GPU, N1);
 	cudaErrorCheck(__FILE__, __LINE__);
 	cudaMemcpyAsync(C_CPU + N0, C0_GPU, N1*sizeof(float), cudaMemcpyDeviceToHost,s1);
 	cudaErrorCheck(__FILE__, __LINE__);
