@@ -38,14 +38,14 @@
 float *A_CPU, *B_CPU, *C_CPU; //CPU pointers
 float *A0_GPU, *B0_GPU, *C0_GPU; //Device 0 pointers
 float *A1_GPU, *B1_GPU, *C1_GPU; //Device 1 pointers
-dim3 BlockSize0; //This variable will hold the Dimensions of your blocks
-dim3 GridSize0; //This variable will hold the Dimensions of your grid
-dim3 BlockSize1;
-dim3 GridSize1;
+dim3 BlockSize0; //Device zero's block 
+dim3 GridSize0; //Device zero's grid 
+dim3 BlockSize1; //Device one's block 
+dim3 GridSize1; //Device one's grid 
 float Tolerance = 0.01;
-const int N0 = N / 2;
-const int N1 = N - N0;
-cudaStream_t s0, s1;
+const int N0 = N / 2; //0 to N0 will be used by device 0
+const int N1 = N - N0; //N0 to N will be used by device 1
+cudaStream_t s0, s1;   
 
 
 // Function prototypes
@@ -53,7 +53,7 @@ void cudaErrorCheck(const char *, int);
 void setUpDevices();
 void allocateMemory();
 void innitialize();
-void addVectorsCPU(float*, float*, float*, int);
+void addVectorsCPU(float* a, float* b, float* c, int);
 __global__ void addVectorsGPU(float, float, float, int);
 bool  check(float*, int);
 long elaspedTime(struct timeval, struct timeval);
@@ -80,7 +80,7 @@ void setUpDevices0()
 	BlockSize0.x = 256;
 	BlockSize0.y = 1;
 	BlockSize0.z = 1;
-	
+
 	GridSize0.x = (N0- 1)/BlockSize0.x + 1; // This gives us the correct number of blocks.
 	GridSize0.y = 1;
 	GridSize0.z = 1;
@@ -100,10 +100,10 @@ void setUpDevices1()
 // Allocating the memory we will be using.
 void allocateMemory()
 {	
-	// Host "CPU" memory.				
-	A_CPU = (float*)malloc(N*sizeof(float));
-	B_CPU = (float*)malloc(N*sizeof(float));
-	C_CPU = (float*)malloc(N*sizeof(float));
+	// Host Page-Locked "CPU" memory.	
+	cudaHostAlloc(&A_CPU, N*sizeof(float), cudaHostAllocDefault);
+	cudaHostAlloc(&B_CPU, N*sizeof(float), cudaHostAllocDefault);
+	cudaHostAlloc(&C_CPU, N*sizeof(float), cudaHostAllocDefault);
 	
 	// Device "0" "GPU" Memory
 	cudaSetDevice(0);
@@ -201,11 +201,15 @@ long elaspedTime(struct timeval start, struct timeval end)
 // Cleaning up memory after we are finished.
 void CleanUp()
 {
-	// Freeing host "CPU" memory.
-	free(A_CPU); 
-	free(B_CPU); 
-	free(C_CPU);
+	// Freeing page-locked "CPU" memory.
+	cudaFreeHost(A_CPU);
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaFreeHost(B_CPU);
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaFreeHost(C_CPU);
+	cudaErrorCheck(__FILE__, __LINE__);
 	
+	// Clean up Device 0
 	cudaSetDevice(0);
 	cudaFree(A0_GPU); 
 	cudaErrorCheck(__FILE__, __LINE__);
@@ -215,6 +219,8 @@ void CleanUp()
 	cudaErrorCheck(__FILE__, __LINE__);
 	cudaStreamDestroy(s0);
 	cudaErrorCheck(__FILE__, __LINE__);
+	
+	// Clean up Device 1
 	cudaSetDevice(1);
 	cudaFree(A1_GPU); 
 	cudaErrorCheck(__FILE__, __LINE__);
@@ -229,8 +235,8 @@ void CleanUp()
 // Counting and selecting devices we plan on using
 void PrepareDevices()
 {
+	// Make sure there are at least 2 devices available
 	int deviceCount;
-	//cudaDeviceProp prop;
 	
 	cudaGetDeviceCount(&deviceCount);
 	cudaErrorCheck(__FILE__, __LINE__);
@@ -238,6 +244,7 @@ void PrepareDevices()
 	printf("The host needs at least two GPUS to run this code");
 	exit(0);
 	}
+	// Preparing our streams here per device
 	cudaSetDevice(0);
 	cudaStreamCreate(&s0);
 	cudaSetDevice(1);
@@ -249,12 +256,12 @@ int main()
 	timeval start, end;
 	long timeCPU, timeGPU;
 	
-	// Setting up the GPU
+	// Setting up the GPUs
 	PrepareDevices();
 	setUpDevices0();
 	setUpDevices1();
 	
-	// Allocating the memory you will need.
+	// Allocating the memory you will need 	 	 	
 	allocateMemory();
 	
 	// Putting values in the vectors.
@@ -276,6 +283,7 @@ int main()
 	gettimeofday(&start, NULL);
 	
 	// Copy Memory from CPU to GPU for Device 0
+	// Device 0 is in charge of indexes [0,N0]
 	cudaSetDevice(0);	
 	cudaMemcpyAsync(A0_GPU, A_CPU, N0*sizeof(float), cudaMemcpyHostToDevice,s0);
 	cudaErrorCheck(__FILE__, __LINE__);
@@ -286,6 +294,8 @@ int main()
 	cudaMemcpyAsync(C_CPU, C0_GPU, N0*sizeof(float), cudaMemcpyDeviceToHost,s0);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
+	// Copy Memory from CPU to GPU for Device 1
+	// Device 1 is in charge of indexes [N0,N]
 	cudaSetDevice(1);	
 	cudaMemcpyAsync(A1_GPU, A_CPU+N0, N1*sizeof(float), cudaMemcpyHostToDevice,s1);
 	cudaErrorCheck(__FILE__, __LINE__);
@@ -293,7 +303,7 @@ int main()
 	cudaErrorCheck(__FILE__, __LINE__);
 	addVectorsGPU<<<GridSize1,BlockSize1,0,s1>>>(A1_GPU, B1_GPU ,C1_GPU, N1);
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMemcpyAsync(C_CPU + N0, C0_GPU, N1*sizeof(float), cudaMemcpyDeviceToHost,s1);
+	cudaMemcpyAsync(C_CPU + N0, C1_GPU, N1*sizeof(float), cudaMemcpyDeviceToHost,s1);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	// Making sure the GPU and CPU wait until each other are at the same place.
