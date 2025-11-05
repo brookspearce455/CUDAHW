@@ -43,6 +43,9 @@ dim3 GridSize0; //This variable will hold the Dimensions of your grid
 dim3 BlockSize1;
 dim3 GridSize1;
 float Tolerance = 0.01;
+const int N0 = N / 2;
+const int N1 = N - N0;
+cudaStream_t s0, s1;
 
 
 // Function prototypes
@@ -71,16 +74,27 @@ void cudaErrorCheck(const char *file, int line)
 }
 
 // This will be the layout of the parallel space we will be using.
-void setUpDevices(int deviceId,partialN)
+void setUpDevices0()
 {
-	cudaSetDevice(deviceId);
-	BlockSize.x = 256;
-	BlockSize.y = 1;
-	BlockSize.z = 1;
+	cudaSetDevice(0);
+	BlockSize0.x = 256;
+	BlockSize0.y = 1;
+	BlockSize0.z = 1;
 	
-	GridSize.x = (partialN - 1)/BlockSize.x + 1; // This gives us the correct number of blocks.
-	GridSize.y = 1;
-	GridSize.z = 1;
+	GridSize0.x = (N0- 1)/BlockSize0.x + 1; // This gives us the correct number of blocks.
+	GridSize0.y = 1;
+	GridSize0.z = 1;
+}
+void setUpDevices1()
+{
+	cudaSetDevice(1);
+	BlockSize1.x = 256;
+	BlockSize1.y = 1;
+	BlockSize1.z = 1;
+	
+	GridSize1.x = (N1- 1)/BlockSize1.x + 1; // This gives us the correct number of blocks.
+	GridSize1.y = 1;
+	GridSize1.z = 1;
 }
 
 // Allocating the memory we will be using.
@@ -216,8 +230,7 @@ void CleanUp()
 void PrepareDevices()
 {
 	int deviceCount;
-	cudaDeviceProp prop;
-	cudaStream_t s0, s1;
+	//cudaDeviceProp prop;
 	
 	cudaGetDeviceCount(&deviceCount);
 	cudaErrorCheck(__FILE__, __LINE__);
@@ -226,22 +239,20 @@ void PrepareDevices()
 	exit(0);
 	}
 	cudaSetDevice(0);
-	cudaStreamCreate(%s0);
+	cudaStreamCreate(&s0);
 	cudaSetDevice(1);
-	cudaStreamCreate(%s1);
+	cudaStreamCreate(&s1);
 	
 }
 int main()
 {
 	timeval start, end;
 	long timeCPU, timeGPU;
-	const int N0 = N / 2;
-	const int N1 = N - N0;
 	
 	// Setting up the GPU
 	
-	setUpDevices(0,N0);
-	setUpDevices(1,N1);
+	setUpDevices0();
+	setUpDevices1();
 	
 	// Allocating the memory you will need.
 	allocateMemory();
@@ -272,7 +283,7 @@ int main()
 	cudaErrorCheck(__FILE__, __LINE__);
 	addVectorsGPU<<<GridSize0,BlockSize0>>>(A0_GPU, B0_GPU ,C0_GPU, N0);
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMemcpyAsync(C_CPU, C_GPU, N0*sizeof(float), cudaMemcpyDeviceToHost,s0);
+	cudaMemcpyAsync(C_CPU, C0_GPU, N0*sizeof(float), cudaMemcpyDeviceToHost,s0);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	cudaSetDevice(1);	
@@ -312,4 +323,3 @@ int main()
 	
 	return(0);
 }
-
