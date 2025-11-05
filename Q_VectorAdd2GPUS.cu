@@ -250,7 +250,7 @@ int main()
 	long timeCPU, timeGPU;
 	
 	// Setting up the GPU
-	
+	PrepareDevices();
 	setUpDevices0();
 	setUpDevices1();
 	
