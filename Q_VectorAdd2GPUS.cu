@@ -1,6 +1,6 @@
 // Name: Brooks Pearce
 // Vector addition on two GPUs.
-// nvcc HW22.cu -o temp
+// nvcc Q_VectorAdd2GPUS.cu -o temp
 /*
  What to do:
  This code adds two vectors of any length on a GPU.
