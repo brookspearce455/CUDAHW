@@ -29,10 +29,10 @@
 #define YWindowSize 1000
 #define STOP_TIME 10000.0
 #define DT        0.0001
-#define GRAVITY 0.1 
+#define GRAVITY 0.5 
 #define MASS 10.0  	
 #define DIAMETER 1.0
-#define SPHERE_PUSH_BACK_STRENGTH 50.0
+#define SPHERE_PUSH_BACK_STRENGTH 10.0
 #define PUSH_BACK_REDUCTION 0.1
 #define DAMP 0.01
 #define DRAW 100
@@ -79,7 +79,7 @@ void set_initail_conditions()
 		py2 = (LENGTH_OF_BOX - DIAMETER)*rand()/RAND_MAX - (LENGTH_OF_BOX - DIAMETER)/2.0;
 		pz2 = (LENGTH_OF_BOX - DIAMETER)*rand()/RAND_MAX - (LENGTH_OF_BOX - DIAMETER)/2.0;
 		
-		dx = px2 - px2;
+		dx = px2 - px1;
 		dy = py2 - py1;
 		dz = pz2 - pz1;
 		seperation = sqrt(dx*dx + dy*dy + dz*dz);
@@ -385,5 +385,4 @@ int main(int argc, char** argv)
 	glutMainLoop();
 	return 0;
 }
-
 
