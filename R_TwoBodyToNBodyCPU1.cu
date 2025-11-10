@@ -29,16 +29,16 @@
 #define YWindowSize 1000
 #define STOP_TIME 10000.0
 #define DT        0.00001
-#define GRAVITY 0.1 //0.1
+#define GRAVITY 10 //0.1
 #define MASS 10.0  	
 #define DIAMETER 1.0
-#define SPHERE_PUSH_BACK_STRENGTH 100.0 //50.0
-#define PUSH_BACK_REDUCTION 0.01 //0.1
-#define DAMP 0.01 //0.01
-#define DRAW 100
+#define SPHERE_PUSH_BACK_STRENGTH 0.0 //50.0
+#define PUSH_BACK_REDUCTION 5.01 //0.1
+#define DAMP 0.1 //0.01
+#define DRAW 1000
 #define LENGTH_OF_BOX 6.0
-#define MAX_VELOCITY 5.0
-#define NUM_OF_SPHERES 2
+#define MAX_VELOCITY 1.0
+#define NUM_OF_SPHERES 10
 
 // Globals
 const float XMax = (LENGTH_OF_BOX/2.0);
@@ -52,7 +52,7 @@ const float ZMin = -(LENGTH_OF_BOX/2.0);
 struct Spheres {
 	float px, py, pz, vx, vy, vz, fx, fy, fz, mass; 
 };
-struct Spheres Sphere[NUM_OF_SPHERES];
+struct Spheres Sphere[NUM_OF_SPHERES]; 
 
 // Function prototypes
 void set_initail_conditions();
@@ -79,7 +79,7 @@ void set_initail_conditions()
 	Sphere[0].vx = 2.0*MAX_VELOCITY*rand()/RAND_MAX - MAX_VELOCITY;
 	Sphere[0].vy = 2.0*MAX_VELOCITY*rand()/RAND_MAX - MAX_VELOCITY;
 	Sphere[0].vz = 2.0*MAX_VELOCITY*rand()/RAND_MAX - MAX_VELOCITY;
-	Sphere[0].mass = 10.0;
+	Sphere[0].mass = 1.0;
 	for(int i = 1; i < NUM_OF_SPHERES; i++){	
 		yeahBuddy = 0;
 		while(yeahBuddy == 0)
@@ -101,7 +101,7 @@ void set_initail_conditions()
 		Sphere[i].vx = 2.0*MAX_VELOCITY*rand()/RAND_MAX - MAX_VELOCITY;
 		Sphere[i].vy = 2.0*MAX_VELOCITY*rand()/RAND_MAX - MAX_VELOCITY;
 		Sphere[i].vz = 2.0*MAX_VELOCITY*rand()/RAND_MAX - MAX_VELOCITY;
-		Sphere[i].mass = 10.0;
+		Sphere[i].mass = 1.0;
 	}
 }
 
@@ -166,34 +166,34 @@ void keep_in_box()
 		if(Sphere[i].px > halfBoxLength)
 		{
 			Sphere[i].px = 2.0*halfBoxLength - Sphere[i].px;
-			Sphere[i].vx = - 0.8*Sphere[i].vx;
+			Sphere[i].vx = - Sphere[i].vx;
 		}
 		else if(Sphere[i].px < -halfBoxLength)
 		{
 			Sphere[i].px = -2.0*halfBoxLength - Sphere[i].px;
-			Sphere[i].vx = - 0.8*Sphere[i].vx;
+			Sphere[i].vx = - Sphere[i].vx;
 		}
 		
 		if(Sphere[i].py > halfBoxLength)
 		{
 			Sphere[i].py = 2.0*halfBoxLength - Sphere[i].py;
-			Sphere[i].vy = - 0.8*Sphere[i].vy;
+			Sphere[i].vy = - Sphere[i].vy;
 		}
 		else if(Sphere[i].py < -halfBoxLength)
 		{
 			Sphere[i].py = -2.0*halfBoxLength - Sphere[i].py;
-			Sphere[i].vy = - 0.8*Sphere[i].vy;
+			Sphere[i].vy = - Sphere[i].vy;
 		}
 				
 		if(Sphere[i].pz > halfBoxLength)
 		{
 			Sphere[i].pz = 2.0*halfBoxLength - Sphere[i].pz;
-			Sphere[i].vz = - 0.8*Sphere[i].vz;
+			Sphere[i].vz = - Sphere[i].vz;
 		}
 		else if(Sphere[i].pz < -halfBoxLength)
 		{
 			Sphere[i].pz = -2.0*halfBoxLength - Sphere[i].pz;
-			Sphere[i].vz = - 0.8*Sphere[i].vz;
+			Sphere[i].vz = - Sphere[i].vz;
 		}
 	}
 }
@@ -214,9 +214,9 @@ void get_forces()
 		r2 = dx*dx + dy*dy + dz*dz;
 		r = sqrt(r2);
 
-		forceMag =  Sphere[i].mass*Sphere[j].mass*GRAVITY/r2;
+		forceMag = Sphere[i].mass*Sphere[j].mass*GRAVITY/r2;
 				
-		if (r < DIAMETER + 0.1)
+		if (r < DIAMETER)
 		{
 			dvx = Sphere[i].vx - Sphere[j].vx;
 			dvy = Sphere[i].vy - Sphere[j].vy;
@@ -244,14 +244,7 @@ void get_forces()
 void move_bodies(float time)
 {
 	for(int i = 0; i < NUM_OF_SPHERES; i++){
-	/*if(time == 0.0)
-	{
-		Sphere[i].vx += 0.5*DT*(Sphere[i].fx - DAMP*Sphere[i].vx)/Sphere[i].mass;
-		Sphere[i].vy += 0.5*DT*(Sphere[i].fy - DAMP*Sphere[i].vy)/Sphere[i].mass;
-		Sphere[i].vz += 0.5*DT*(Sphere[i].fz - DAMP*Sphere[i].vz)/Sphere[i].mass;
-	}
-	else
-	{*/
+	
 	Sphere[i].vx += DT*(Sphere[i].fx - DAMP*Sphere[i].vx)/Sphere[i].mass;
 	Sphere[i].vy += DT*(Sphere[i].fy - DAMP*Sphere[i].vy)/Sphere[i].mass;
 	Sphere[i].vz += DT*(Sphere[i].fz - DAMP*Sphere[i].vz)/Sphere[i].mass;
@@ -351,4 +344,3 @@ int main(int argc, char** argv)
 	glutMainLoop();
 	return 0;
 }
-
