@@ -1,6 +1,6 @@
 // Name: Brooks Pearce
 // Creating a GPU nBody simulation from an nBody CPU simulation. 
-// nvcc 18NBodyGPU.cu -o temp -lglut -lm -lGLU -lGL
+// nvcc S_NBodyCPUToGPU1Block.cu -o temp -lglut -lm -lGLU -lGL
 
 /*
  What to do:
@@ -41,9 +41,13 @@
 // Globals
 int N, DrawFlag;
 float3 *P, *V, *F;
-float *M; 
+float3 *PGPU, *VGPU, *FGPU;
+float *force_mag, *dxCUDA, *dyCUDA, *dzCUDA, *dCUDA, *d2CUDA; 
+float *MGPU, *M;  
 float GlobeRadius, Diameter, Radius;
 float Damp;
+dim3 BlockSize;
+dim3 GridSize;
 
 // Function prototypes
 void keyPressed(unsigned char, int, int);
@@ -52,7 +56,22 @@ void drawPicture();
 void timer();
 void setup();
 void nBody();
+void setupDevice();
+__global__ void nBodyOnGPU(float *MGPU, float3 *PGPU, float3 *VGPU, float3 *FGPU, float Damp, float time, float dt, int N, float *force_mag, float *dx, float *dy, float *dz, float *d, float *d2);
 int main(int, char**);
+
+
+void cudaErrorCheck(const char *file, int line)
+{
+	cudaError_t  error;
+	error = cudaGetLastError();
+
+	if(error != cudaSuccess)
+	{
+		printf("\n CUDA ERROR: message = %s, File = %s, Line = %d\n", cudaGetErrorString(error), file, line);
+		exit(0);
+	}
+}
 
 void keyPressed(unsigned char key, int x, int y)
 {
@@ -87,6 +106,9 @@ void drawPicture()
 	glClear(GL_COLOR_BUFFER_BIT);
 	glClear(GL_DEPTH_BUFFER_BIT);
 	
+	cudaMemcpy(P, PGPU, N*sizeof(float3), cudaMemcpyDeviceToHost);
+	cudaErrorCheck(__FILE__, __LINE__);
+	
 	glColor3d(1.0,1.0,0.5);
 	for(i=0; i<N; i++)
 	{
@@ -94,6 +116,7 @@ void drawPicture()
 		glTranslatef(P[i].x, P[i].y, P[i].z);
 		glutSolidSphere(Radius,20,20);
 		glPopMatrix();
+		//printf("Sphere[%d],%f.%f.%f\n",i,P[i].x, P[i].y, P[i].z);
 	}
 	
 	glutSwapBuffers();
@@ -119,6 +142,7 @@ void setup()
     	float randomAngle1, randomAngle2, randomRadius;
     	float d, dx, dy, dz;
     	int test;
+    	setupDevice();
     	
     	Damp = 0.5;
     	
@@ -127,6 +151,27 @@ void setup()
     	V = (float3*)malloc(N*sizeof(float3));
     	F = (float3*)malloc(N*sizeof(float3));
     	
+	cudaMalloc(&MGPU,N*sizeof(float));
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaMalloc(&PGPU,N*sizeof(float3));
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaMalloc(&VGPU,N*sizeof(float3));
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaMalloc(&FGPU,N*sizeof(float3));
+	cudaErrorCheck(__FILE__, __LINE__);
+	
+	cudaMalloc(&force_mag,sizeof(float)*N*N);
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaMalloc(&dxCUDA,sizeof(float)*N*N);
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaMalloc(&dyCUDA,sizeof(float)*N*N);
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaMalloc(&dzCUDA,sizeof(float)*N*N);
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaMalloc(&dCUDA,sizeof(float)*N*N);
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaMalloc(&d2CUDA,sizeof(float)*N*N);
+	cudaErrorCheck(__FILE__, __LINE__);
 	
 	Diameter = pow(H/G, 1.0/(LJQ - LJP)); // This is the value where the force is zero for the L-J type force.
 	Radius = Diameter/2.0;
@@ -138,7 +183,7 @@ void setup()
 	float totalRadius = pow(3.0*totalVolume/(4.0*PI), 1.0/3.0);
 	GlobeRadius = 2.0*totalRadius;
 	
-	// Randomly setting these bodies in the glaobal sphere and setting the initial velosity, inotial force, and mass.
+	// Randomly setting these bodies in the global sphere and setting the initial velocity, initial force, and mass.
 	for(int i = 0; i < N; i++)
 	{
 		test = 0;
@@ -179,70 +224,33 @@ void setup()
 		
 		M[i] = 1.0;
 	}
+	cudaMemcpy(MGPU, M, N*sizeof(float), cudaMemcpyHostToDevice);
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaMemcpy(VGPU, V, N*sizeof(float3), cudaMemcpyHostToDevice);
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaMemcpy(PGPU, P, N*sizeof(float3), cudaMemcpyHostToDevice);
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaMemcpy(FGPU, F, N*sizeof(float3), cudaMemcpyHostToDevice);
+	cudaErrorCheck(__FILE__, __LINE__);
 	printf("\n To start timing type s.\n");
 }
 
 void nBody()
 {
-	float force_mag; 
-	float dx,dy,dz,d, d2;
-	
-	int    drawCount = 0; 
-	float  time = 0.0;
+	int   drawCount = 0; 
+	float time = 0.0;
 	float dt = 0.0001;
 
-	while(time < RUN_TIME)
+	while(time < RUN_TIME) 
 	{
-		for(int i=0; i<N; i++)
-		{
-			F[i].x = 0.0;
-			F[i].y = 0.0;
-			F[i].z = 0.0;
-		}
-		
-		for(int i=0; i<N; i++)
-		{
-			for(int j=i+1; j<N; j++)
-			{
-				dx = P[j].x-P[i].x;
-				dy = P[j].y-P[i].y;
-				dz = P[j].z-P[i].z;
-				d2 = dx*dx + dy*dy + dz*dz;
-				d  = sqrt(d2);
-				
-				force_mag  = (G*M[i]*M[j])/(d2) - (H*M[i]*M[j])/(d2*d2);
-				F[i].x += force_mag*dx/d;
-				F[j].x -= force_mag*dx/d;
-				F[i].y += force_mag*dy/d;
-				F[j].y -= force_mag*dy/d;
-				F[i].z += force_mag*dz/d;
-				F[j].z -= force_mag*dz/d;
-			}
-		}
-
-		for(int i=0; i<N; i++)
-		{
-			if(time == 0.0)
-			{
-				V[i].x += (F[i].x/M[i])*0.5*dt;
-				V[i].y += (F[i].y/M[i])*0.5*dt;
-				V[i].z += (F[i].z/M[i])*0.5*dt;
-			}
-			else
-			{
-				V[i].x += ((F[i].x-Damp*V[i].x)/M[i])*dt;
-				V[i].y += ((F[i].y-Damp*V[i].y)/M[i])*dt;
-				V[i].z += ((F[i].z-Damp*V[i].z)/M[i])*dt;
-			}
-
-			P[i].x += V[i].x*dt;
-			P[i].y += V[i].y*dt;
-			P[i].z += V[i].z*dt;
-		}
-
+		nBodyOnGPU<<<GridSize,BlockSize>>>(MGPU, PGPU, VGPU, FGPU, Damp, time, dt, N, force_mag, dxCUDA, dyCUDA, dzCUDA, dCUDA, d2CUDA);
 		if(drawCount == DRAW_RATE) 
 		{
-			if(DrawFlag) drawPicture();
+			if(DrawFlag){
+		
+			 drawPicture();
+			}
+	
 			drawCount = 0;
 		}
 		
@@ -250,14 +258,87 @@ void nBody()
 		drawCount++;
 	}
 }
+void setupDevice(){
+	
+	BlockSize.x = N;
+	BlockSize.y = 1;
+	BlockSize.z = 1;
+	
+	GridSize.x = 1;
+	GridSize.y = 1;
+	GridSize.z = 1;
+}
 
+__global__ void nBodyOnGPU(float *MGPU, float3 *PGPU, float3 *VGPU, float3 *FGPU, float Damp, float time, float dt, int N, float *force_mag, float *dx, float *dy, float *dz, float *d, float *d2){ 
+	
+	
+	int id = threadIdx.x;
+	const float eps = 1e-8f;
+	
+		FGPU[id].x = 0.0;
+		FGPU[id].y = 0.0;
+		FGPU[id].z = 0.0;
+		for(int i =  1+ id; i < N; i++){	
+			int perCol = id*N +i;
+			int perRow = i*N +id;
+			dx[perCol] = PGPU[i].x-PGPU[id].x;
+			dy[perCol] = PGPU[i].y-PGPU[id].y;
+			dz[perCol] = PGPU[i].z-PGPU[id].z;
+			d2[perCol] = dx[perCol]*dx[perCol] + dy[perCol]*dy[perCol] + dz[perCol]*dz[perCol] + eps;
+			d[perCol]  = sqrt(d2[perCol]);
+			// Mirroring row to column over the diagonal
+			dx[perRow] = -dx[perCol];
+			dy[perRow] = -dy[perCol];
+			dz[perRow] = -dz[perCol];
+			d2[perRow] = d2[perCol];
+			d[perRow] = d[perCol];
+			// Mirroring forces from row to column over diagonal	
+			force_mag[perCol]  = (G*MGPU[id]*MGPU[i])/(d2[perCol]) - (H*MGPU[id]*MGPU[i])/(d2[perCol]*d2[perCol]);
+			force_mag[perRow] = -force_mag[perRow];
+			
+		}
+		__syncthreads();
+		// All forces are added in this for loop of N iterations
+		// This is the reason I had to save all of the throw away variables like dx and dy into an array 
+		// I needed them to calculate the forces in another for loop
+		for(int i = 0; i < N; i++){
+			int perCol = id*N +i;
+			if(i != id){
+			FGPU[id].x += force_mag[perCol]*dx[perCol]/d[perCol];
+			FGPU[id].y += force_mag[perCol]*dy[perCol]/d[perCol];
+			FGPU[id].z += force_mag[perCol]*dz[perCol]/d[perCol];
+			}
+		}
+			
+		__syncthreads();
+		
+		int i = threadIdx.x;
+		
+		if(time == 0.0){
+			VGPU[i].x += (FGPU[i].x/MGPU[i])*0.5*dt;
+			VGPU[i].y += (FGPU[i].y/MGPU[i])*0.5*dt;
+			VGPU[i].z += (FGPU[i].z/MGPU[i])*0.5*dt;
+		}
+		else{
+			VGPU[i].x += ((FGPU[i].x-Damp*VGPU[i].x)/MGPU[i])*dt;
+			VGPU[i].y += ((FGPU[i].y-Damp*VGPU[i].y)/MGPU[i])*dt;
+			VGPU[i].z += ((FGPU[i].z-Damp*VGPU[i].z)/MGPU[i])*dt;
+		}
+
+		PGPU[i].x += VGPU[i].x*dt;
+		PGPU[i].y += VGPU[i].y*dt;
+		PGPU[i].z += VGPU[i].z*dt;
+			
+		__syncthreads();
+
+}
 int main(int argc, char** argv)
 {
 	if( argc < 3)
 	{
 		printf("\n You need to enter the number of bodies (an int)"); 
 		printf("\n and if you want to draw the bodies as they move (1 draw, 0 don't draw),");
-		printf("\n on the comand line.\n"); 
+		printf("\n on the command line.\n"); 
 		exit(0);
 	}
 	else
@@ -314,7 +395,6 @@ int main(int argc, char** argv)
 	glutMainLoop();
 	return 0;
 }
-
 
 
 
