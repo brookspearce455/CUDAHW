@@ -78,7 +78,7 @@ void keyPressed(unsigned char key, int x, int y)
 	if(key == 's')
 	{
 		printf("\n The simulation is running.\n");
-		timer();
+		timer();printf("Got here");
 	}
 	
 	if(key == 'q')
@@ -246,18 +246,23 @@ __global__ void forceCalc(float3 *p, float3 *v, float3 *f, float3 *fout, float *
 	
 	int i = threadIdx.x + blockIdx.x * blockDim.x;
 	int forceId = threadIdx.x;
+	float fx,fx,fz;
+	if(i < n){
 	f[i].x = 0.0f;
 	f[i].y = 0.0f;
 	f[i].z = 0.0f;
 	for(int d = 0; d < gridDim.x; d++){
-		fout[i+ d*gridDim.x].x = 0.0;
-		fout[i+ d*gridDim.x].y = 0.0;
-		fout[i+ d*gridDim.x].z = 0.0;
+		int foutIndex = i+ d*gridDim.x;
+		if(foutIndex < n * gridDim.x){
+			fout[foutIndex].x = 0.0;
+			fout[foutIndex].y = 0.0;
+			fout[foutIndex].z = 0.0;
+		}
 	}
 
 	for(int j = 0; j < n; j++)
 	{
-		if((i != j)&&(i < n))
+		if((j != i)&&(i < n))
 		{
 			dx = p[j].x-p[i].x;
 			dy = p[j].y-p[i].y;
@@ -267,22 +272,25 @@ __global__ void forceCalc(float3 *p, float3 *v, float3 *f, float3 *fout, float *
 			
 			force_mag = (g*m[i]*m[j])/(d2) - (h*m[i]*m[j])/(d2*d2);
 			
-			f[i].x += force_mag*dx/d;
-			f[i].y += force_mag*dy/d;
-			f[i].z += force_mag*dz/d;
+			fx = force_mag*dx/d;
+			fy = force_mag*dy/d;
+			fz = force_mag*dz/d;
 			
 			// Sum partial forces per block and fill in fout
 			// each body in fout will have gridSize partial forces to sum on the CPU 
-			atomicAdd(&fout[blockIdx.x + j*gridDim.x].x,f[forceId].x);
-			atomicAdd(&fout[blockIdx.x + j*gridDim.x].y,f[forceId].y);
-			atomicAdd(&fout[blockIdx.x + j*gridDim.x].z,f[forceId].z);
+			int index = blockIdx.x + j*gridDim.x;
+			atomicAdd(&fout[index].x,fx);
+			atomicAdd(&fout[index].y,fy);
+  			atomicAdd(&fout[index].z,fz);
+			
 		}
 	}
-	
+}
 }
 
-__global__ void positionCalc(float3 *p, float3 *v, float3 *f, float *m, float g, float h, float damp, float dt, float t, int n){
 
+__global__ void positionCalc(float3 *p, float3 *v, float3 *f, float *m, float g, float h, float damp, float dt, float t, int n){
+ 
 	int i = threadIdx.x + blockIdx.x * blockDim.x;
 	
 	if(i < n){
@@ -309,27 +317,35 @@ __global__ void positionCalc(float3 *p, float3 *v, float3 *f, float *m, float g,
 
 void nBody()
 {
+	
 	int    drawCount = 0; 
 	float  t = 0.0;
 	float dt = 0.0001;
 
 	while(t < RUN_TIME)
 	{
-		for(int i = 0; i < N; i++){
-			F[i].x = 0.0;
-			F[i].y = 0.0;
-			F[i].z = 0.0;
+		for (int i = 0; i < N; i++) {
+  			F[i].x = 0;
+    			F[i].y = 0;
+    			F[i].z = 0;
 		}
-		forceCalc<<<GridSize,BlockSize>>>(PGPU, VGPU, FGPU, FoutGPU, MGPU, G, H, Damp, dt, t, N);
 		
+		cudaMemset(FoutGPU, 0, N * GridSize.x * sizeof(float3));
+		cudaErrorCheck(__FILE__, __LINE__);
+		forceCalc<<<GridSize,BlockSize>>>(PGPU, VGPU, FGPU, FoutGPU, MGPU, G, H, Damp, dt, t, N);
+		cudaErrorCheck(__FILE__, __LINE__);
 		cudaMemcpyAsync(Fout, FoutGPU, N*GridSize.x*sizeof(float3), cudaMemcpyDeviceToHost);
 		cudaErrorCheck(__FILE__, __LINE__);
-		
+	
 		for(int i = 0; i < N; i++){
 			for(int j = 0; j < GridSize.x; j++){
-				F[i].x += Fout[i*GridSize.x + j].x;
-				F[i].y += Fout[i*GridSize.x + j].y;
-				F[i].z += Fout[i*GridSize.x + j].z;
+				int index = i*GridSize.x + j;
+				if(index < GridSize.x * N){
+				F[i].x += Fout[index].x;
+				F[i].y += Fout[index].y;
+				F[i].z += Fout[index].z;
+				
+				}
 			}
 		}
 		
@@ -337,7 +353,7 @@ void nBody()
 		cudaErrorCheck(__FILE__, __LINE__);
 				
 		positionCalc<<<GridSize,BlockSize>>>(PGPU, VGPU, FGPU, MGPU, G, H, Damp, dt, t, N);
-		
+		cudaErrorCheck(__FILE__, __LINE__);
 		if(drawCount == DRAW_RATE) 
 		{
 			if(DrawFlag) 
@@ -415,6 +431,7 @@ int main(int argc, char** argv)
 	glutMainLoop();
 	return 0;
 }
+
 
 
 
