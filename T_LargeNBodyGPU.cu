@@ -1,9 +1,9 @@
 // Name: Brooks Pearce
 // Creating a n = whatever from an n <= 1024 nBody GPU code. 
-// nvcc 19LargeNBody.cu -o temp -lglut -lm -lGLU -lGL
+// nvcc T_LargeNBodyGPU.cu -o temp -lglut -lm -lGLU -lGL
 
 /*
- What to do:
+ What to do: 	
  This is some lean nBody code that runs on the GPU. But the number of bodies it can simulated is limited to 1024
  so it can run on one block. Extend this code so it can simulation as many bodies as the user wants (within reason).
  Keep the same general format. But you will need to change a few major things in the code.
@@ -57,7 +57,7 @@ long elaspedTime(struct timeval, struct timeval);
 void drawPicture();
 void timer();
 void setup();
-__global__ void leapFrog(float3 *, float3 *, float3 *, float3 *, float *, float, float, float, float, float, int);
+__global__ void forceCalc(float3 *, float3 *, float3 *, float3 *, float *, float, float, float, float, float, int);
 void nBody();
 int main(int, char**);
 
@@ -145,7 +145,7 @@ void setup()
     	float d, dx, dy, dz;
     	int test;
     	
-    BlockSize.x = 1024;
+   	BlockSize.x = 1024;
 	BlockSize.y = 1;
 	BlockSize.z = 1;
 	
@@ -159,9 +159,9 @@ void setup()
     	P = (float3*)malloc(N*sizeof(float3));
     	V = (float3*)malloc(N*sizeof(float3));
     	F = (float3*)malloc(N*sizeof(float3));
-		Fout = (float3*)malloc(GridSize.x*sizeof(float3));
+	Fout = (float3*)malloc(N*GridSize.x*sizeof(float3));
     	
-    cudaMalloc(&MGPU,N*sizeof(float));
+   	cudaMalloc(&MGPU,N*sizeof(float));
 	cudaErrorCheck(__FILE__, __LINE__);
 	cudaMalloc(&PGPU,N*sizeof(float3));
 	cudaErrorCheck(__FILE__, __LINE__);
@@ -169,7 +169,7 @@ void setup()
 	cudaErrorCheck(__FILE__, __LINE__);
 	cudaMalloc(&FGPU,N*sizeof(float3));
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMalloc(&FoutGPU,GridSize.x*sizeof(float3));
+	cudaMalloc(&FoutGPU,N*GridSize.x*sizeof(float3));
 	cudaErrorCheck(__FILE__, __LINE__);
     	
 	
@@ -223,7 +223,7 @@ void setup()
 		F[i].x = 0.0;
 		F[i].y = 0.0;
 		F[i].z = 0.0;
-		}
+		
 	}
 	
 	cudaMemcpyAsync(PGPU, P, N*sizeof(float3), cudaMemcpyHostToDevice);
@@ -234,7 +234,7 @@ void setup()
 	cudaErrorCheck(__FILE__, __LINE__);
 	cudaMemcpyAsync(MGPU, M, N*sizeof(float), cudaMemcpyHostToDevice);
 	cudaErrorCheck(__FILE__, __LINE__);
-	cudaMemcpyAsync(FoutGPU, Fout, GridSize.x*sizeof(float3), cudaMemcpyHostToDevice);
+	cudaMemcpyAsync(FoutGPU, Fout, N*GridSize.x*sizeof(float3), cudaMemcpyHostToDevice);
 	cudaErrorCheck(__FILE__, __LINE__);
 	
 	printf("\n To start timing type s.\n");
@@ -242,13 +242,18 @@ void setup()
 
 __global__ void forceCalc(float3 *p, float3 *v, float3 *f, float3 *fout, float *m, float g, float h, float damp, float dt, float t, int n)
 {
-	float dx, dy, dz,d,d2;
+	float dx, dy, dz,d,d2,force_mag;
 	
 	int i = threadIdx.x + blockIdx.x * blockDim.x;
-	forceId = threadIdx.x;
-	f[forceId].x = 0.0f;
-	f[forceId].y = 0.0f;
-	f[forceId].z = 0.0f;
+	int forceId = threadIdx.x;
+	f[i].x = 0.0f;
+	f[i].y = 0.0f;
+	f[i].z = 0.0f;
+	for(int d = 0; d < gridDim.x; d++){
+		fout[i+ d*gridDim.x].x = 0.0;
+		fout[i+ d*gridDim.x].y = 0.0;
+		fout[i+ d*gridDim.x].z = 0.0;
+	}
 
 	for(int j = 0; j < n; j++)
 	{
@@ -262,19 +267,21 @@ __global__ void forceCalc(float3 *p, float3 *v, float3 *f, float3 *fout, float *
 			
 			force_mag = (g*m[i]*m[j])/(d2) - (h*m[i]*m[j])/(d2*d2);
 			
-			f[i].x = force_mag*dx/d;
-			f[i].y = force_mag*dy/d;
-			f[i].z = force_mag*dz/d;
+			f[i].x += force_mag*dx/d;
+			f[i].y += force_mag*dy/d;
+			f[i].z += force_mag*dz/d;
 			
-			atomicAdd(&fout[blockIdx.x].x,f[forceId].x);
-			atomicAdd(&fout[blockIdx.x].y,f[forceId].y);
-			atomicAdd(&fout[blockIdx.x].z,f[forceId].z);
-			
+			// Sum partial forces per block and fill in fout
+			// each body in fout will have gridSize partial forces to sum on the CPU 
+			atomicAdd(&fout[blockIdx.x + j*gridDim.x].x,f[forceId].x);
+			atomicAdd(&fout[blockIdx.x + j*gridDim.x].y,f[forceId].y);
+			atomicAdd(&fout[blockIdx.x + j*gridDim.x].z,f[forceId].z);
 		}
 	}
+	
 }
 
-__global__ void positionCalc(float3 *p, float3 *v, float3 *f, float *m, float g, float h, float damp, float dt, float t, int n)
+__global__ void positionCalc(float3 *p, float3 *v, float3 *f, float *m, float g, float h, float damp, float dt, float t, int n){
 
 	int i = threadIdx.x + blockIdx.x * blockDim.x;
 	
@@ -295,8 +302,9 @@ __global__ void positionCalc(float3 *p, float3 *v, float3 *f, float *m, float g,
 		p[i].x += v[i].x*dt;
 		p[i].y += v[i].y*dt;
 		p[i].z += v[i].z*dt;
-		__syncthreads();
+		
 	}
+	
 }
 
 void nBody()
@@ -307,23 +315,28 @@ void nBody()
 
 	while(t < RUN_TIME)
 	{
-		leapFrog<<<GridSize,BlockSize>>>(PGPU, VGPU, FGPU, FoutGPU, MGPU, G, H, Damp, dt, t, N);
+		for(int i = 0; i < N; i++){
+			F[i].x = 0.0;
+			F[i].y = 0.0;
+			F[i].z = 0.0;
+		}
+		forceCalc<<<GridSize,BlockSize>>>(PGPU, VGPU, FGPU, FoutGPU, MGPU, G, H, Damp, dt, t, N);
 		
-		cudaMemcpyAsync(Fout, FoutGPU, GridSize.x*sizeof(float3), cudaMemcpyDeviceToHost);
+		cudaMemcpyAsync(Fout, FoutGPU, N*GridSize.x*sizeof(float3), cudaMemcpyDeviceToHost);
 		cudaErrorCheck(__FILE__, __LINE__);
 		
-		for(int i = 0; i < n; i++){
+		for(int i = 0; i < N; i++){
 			for(int j = 0; j < GridSize.x; j++){
-				F[i].x += FoutGPU[i*GridSize.x + j].x;
-				F[i].y += FoutGPU[i*GridSize.x + j].y;
-				F[i].z += FoutGPU[i*GridSize.x + j].z;
+				F[i].x += Fout[i*GridSize.x + j].x;
+				F[i].y += Fout[i*GridSize.x + j].y;
+				F[i].z += Fout[i*GridSize.x + j].z;
 			}
 		}
 		
-		cudaMemcpyAsync(FGPU, F, GridSize.x*sizeof(float3), cudaMemcpyHostToDevice);
+		cudaMemcpyAsync(FGPU, F, N*sizeof(float3), cudaMemcpyHostToDevice);
 		cudaErrorCheck(__FILE__, __LINE__);
 				
-		positionCalc<<<GridSize,BlockSize>>>(PGPU, VGPU, FGPU, FoutGPU, MGPU, G, H, Damp, dt, t, N);
+		positionCalc<<<GridSize,BlockSize>>>(PGPU, VGPU, FGPU, MGPU, G, H, Damp, dt, t, N);
 		
 		if(drawCount == DRAW_RATE) 
 		{
@@ -402,7 +415,6 @@ int main(int argc, char** argv)
 	glutMainLoop();
 	return 0;
 }
-
 
 
 
