@@ -1,4 +1,4 @@
-// Name: 
+// Name: Brooks Pearce
 // Creating a n = whatever from an n <= 1024 nBody GPU code. 
 // nvcc 19LargeNBody.cu -o temp -lglut -lm -lGLU -lGL
 
@@ -41,9 +41,9 @@
 
 // Globals
 int N, DrawFlag;
-float3 *P, *V, *F;
+float3 *P, *V, *F, *Fout;
 float *M; 
-float3 *PGPU, *VGPU, *FGPU;
+float3 *PGPU, *VGPU, *FGPU, *FoutGPU;
 float *MGPU;
 float GlobeRadius, Diameter, Radius;
 float Damp;
@@ -57,7 +57,7 @@ long elaspedTime(struct timeval, struct timeval);
 void drawPicture();
 void timer();
 void setup();
-__global__ void leapFrog(float3 *, float3 *, float3 *, float *, float, float, float, float, float, int);
+__global__ void leapFrog(float3 *, float3 *, float3 *, float3 *, float *, float, float, float, float, float, int);
 void nBody();
 int main(int, char**);
 
@@ -145,11 +145,11 @@ void setup()
     	float d, dx, dy, dz;
     	int test;
     	
-    	BlockSize.x = N;
+    BlockSize.x = 1024;
 	BlockSize.y = 1;
 	BlockSize.z = 1;
 	
-	GridSize.x = 1;
+	GridSize.x = (N-1) / BlockSize.x + 1 ;
 	GridSize.y = 1;
 	GridSize.z = 1;
     	
@@ -159,14 +159,17 @@ void setup()
     	P = (float3*)malloc(N*sizeof(float3));
     	V = (float3*)malloc(N*sizeof(float3));
     	F = (float3*)malloc(N*sizeof(float3));
+		Fout = (float3*)malloc(GridSize.x*sizeof(float3));
     	
-    	cudaMalloc(&MGPU,N*sizeof(float));
+    cudaMalloc(&MGPU,N*sizeof(float));
 	cudaErrorCheck(__FILE__, __LINE__);
 	cudaMalloc(&PGPU,N*sizeof(float3));
 	cudaErrorCheck(__FILE__, __LINE__);
 	cudaMalloc(&VGPU,N*sizeof(float3));
 	cudaErrorCheck(__FILE__, __LINE__);
 	cudaMalloc(&FGPU,N*sizeof(float3));
+	cudaErrorCheck(__FILE__, __LINE__);
+	cudaMalloc(&FoutGPU,GridSize.x*sizeof(float3));
 	cudaErrorCheck(__FILE__, __LINE__);
     	
 	
@@ -215,11 +218,12 @@ void setup()
 		V[i].y = 0.0;
 		V[i].z = 0.0;
 		
+		M[i] = 1.0;
+		
 		F[i].x = 0.0;
 		F[i].y = 0.0;
 		F[i].z = 0.0;
-		
-		M[i] = 1.0;
+		}
 	}
 	
 	cudaMemcpyAsync(PGPU, P, N*sizeof(float3), cudaMemcpyHostToDevice);
@@ -230,24 +234,25 @@ void setup()
 	cudaErrorCheck(__FILE__, __LINE__);
 	cudaMemcpyAsync(MGPU, M, N*sizeof(float), cudaMemcpyHostToDevice);
 	cudaErrorCheck(__FILE__, __LINE__);
+	cudaMemcpyAsync(FoutGPU, Fout, GridSize.x*sizeof(float3), cudaMemcpyHostToDevice);
+	cudaErrorCheck(__FILE__, __LINE__);
 	
 	printf("\n To start timing type s.\n");
 }
 
-__global__ void leapFrog(float3 *p, float3 *v, float3 *f, float *m, float g, float h, float damp, float dt, float t, int n)
+__global__ void forceCalc(float3 *p, float3 *v, float3 *f, float3 *fout, float *m, float g, float h, float damp, float dt, float t, int n)
 {
 	float dx, dy, dz,d,d2;
-	float force_mag;
 	
-	int i = threadIdx.x;
-	
-	f[i].x = 0.0f;
-	f[i].y = 0.0f;
-	f[i].z = 0.0f;
+	int i = threadIdx.x + blockIdx.x * blockDim.x;
+	forceId = threadIdx.x;
+	f[forceId].x = 0.0f;
+	f[forceId].y = 0.0f;
+	f[forceId].z = 0.0f;
 
 	for(int j = 0; j < n; j++)
 	{
-		if(i != j)
+		if((i != j)&&(i < n))
 		{
 			dx = p[j].x-p[i].x;
 			dy = p[j].y-p[i].y;
@@ -255,31 +260,43 @@ __global__ void leapFrog(float3 *p, float3 *v, float3 *f, float *m, float g, flo
 			d2 = dx*dx + dy*dy + dz*dz;
 			d  = sqrt(d2);
 			
-			force_mag  = (g*m[i]*m[j])/(d2) - (h*m[i]*m[j])/(d2*d2);
-			f[i].x += force_mag*dx/d;
-			f[i].y += force_mag*dy/d;
-			f[i].z += force_mag*dz/d;
+			force_mag = (g*m[i]*m[j])/(d2) - (h*m[i]*m[j])/(d2*d2);
+			
+			f[i].x = force_mag*dx/d;
+			f[i].y = force_mag*dy/d;
+			f[i].z = force_mag*dz/d;
+			
+			atomicAdd(&fout[blockIdx.x].x,f[forceId].x);
+			atomicAdd(&fout[blockIdx.x].y,f[forceId].y);
+			atomicAdd(&fout[blockIdx.x].z,f[forceId].z);
+			
 		}
 	}
-	__syncthreads();
-	
-	if(t == 0.0f)
-	{
-		v[i].x += ((f[i].x-damp*v[i].x)/m[i])*dt/2.0f;
-		v[i].y += ((f[i].y-damp*v[i].y)/m[i])*dt/2.0f;
-		v[i].z += ((f[i].z-damp*v[i].z)/m[i])*dt/2.0f;
-	}
-	else
-	{
-		v[i].x += ((f[i].x-damp*v[i].x)/m[i])*dt;
-		v[i].y += ((f[i].y-damp*v[i].y)/m[i])*dt;
-		v[i].z += ((f[i].z-damp*v[i].z)/m[i])*dt;
-	}
+}
 
-	p[i].x += v[i].x*dt;
-	p[i].y += v[i].y*dt;
-	p[i].z += v[i].z*dt;
-	__syncthreads();
+__global__ void positionCalc(float3 *p, float3 *v, float3 *f, float *m, float g, float h, float damp, float dt, float t, int n)
+
+	int i = threadIdx.x + blockIdx.x * blockDim.x;
+	
+	if(i < n){
+		if(t == 0.0f)
+		{
+			v[i].x += ((f[i].x-damp*v[i].x)/m[i])*dt/2.0f;
+			v[i].y += ((f[i].y-damp*v[i].y)/m[i])*dt/2.0f;
+			v[i].z += ((f[i].z-damp*v[i].z)/m[i])*dt/2.0f;
+		}
+		else
+		{
+			v[i].x += ((f[i].x-damp*v[i].x)/m[i])*dt;
+			v[i].y += ((f[i].y-damp*v[i].y)/m[i])*dt;
+			v[i].z += ((f[i].z-damp*v[i].z)/m[i])*dt;
+		}
+
+		p[i].x += v[i].x*dt;
+		p[i].y += v[i].y*dt;
+		p[i].z += v[i].z*dt;
+		__syncthreads();
+	}
 }
 
 void nBody()
@@ -290,7 +307,24 @@ void nBody()
 
 	while(t < RUN_TIME)
 	{
-		leapFrog<<<GridSize,BlockSize>>>(PGPU, VGPU, FGPU, MGPU, G, H, Damp, dt, t, N);
+		leapFrog<<<GridSize,BlockSize>>>(PGPU, VGPU, FGPU, FoutGPU, MGPU, G, H, Damp, dt, t, N);
+		
+		cudaMemcpyAsync(Fout, FoutGPU, GridSize.x*sizeof(float3), cudaMemcpyDeviceToHost);
+		cudaErrorCheck(__FILE__, __LINE__);
+		
+		for(int i = 0; i < n; i++){
+			for(int j = 0; j < GridSize.x; j++){
+				F[i].x += FoutGPU[i*GridSize.x + j].x;
+				F[i].y += FoutGPU[i*GridSize.x + j].y;
+				F[i].z += FoutGPU[i*GridSize.x + j].z;
+			}
+		}
+		
+		cudaMemcpyAsync(FGPU, F, GridSize.x*sizeof(float3), cudaMemcpyHostToDevice);
+		cudaErrorCheck(__FILE__, __LINE__);
+				
+		positionCalc<<<GridSize,BlockSize>>>(PGPU, VGPU, FGPU, FoutGPU, MGPU, G, H, Damp, dt, t, N);
+		
 		if(drawCount == DRAW_RATE) 
 		{
 			if(DrawFlag) 
